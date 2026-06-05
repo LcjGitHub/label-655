@@ -1,20 +1,16 @@
 <template>
-  <div class="app-container">
-    <header class="app-header">
+  <div class="app-container" :class="{ 'admin-container': isAdminDashboard }">
+    <header v-if="!isAdminDashboard" class="app-header">
       <div class="header-content">
         <div class="header-title" @click="goHome">
           <h1>📝 留言板系统</h1>
           <p class="subtitle">分享你的想法，与大家交流</p>
         </div>
         <nav class="nav-menu">
-          <router-link v-if="!isAdminPage" to="/admin/login" class="nav-btn admin-link">
+          <router-link to="/admin/login" class="nav-btn admin-link">
             🛡️ 管理后台
           </router-link>
-          <template v-if="isAdminPage">
-            <span class="welcome-text">🛡️ 管理员: {{ currentAdmin?.username }}</span>
-            <button class="nav-btn logout-btn" @click="handleAdminLogout">退出</button>
-          </template>
-          <template v-else-if="isLoggedIn">
+          <template v-if="isLoggedIn">
             <span class="welcome-text">👤 {{ currentUser?.username }}</span>
             <button class="nav-btn logout-btn" @click="handleUserLogout">退出登录</button>
           </template>
@@ -44,7 +40,7 @@ const isLoggedIn = authStore.isLoggedIn
 const currentUser = authStore.currentUser
 const currentAdmin = adminStore.currentAdmin
 
-const isAdminPage = computed(() => route.path.startsWith('/admin'))
+const isAdminDashboard = computed(() => route.path === '/admin/dashboard')
 
 const goHome = () => {
   router.push('/')
@@ -69,6 +65,12 @@ const handleAdminLogout = () => {
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+}
+
+.app-container.admin-container {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .app-header {

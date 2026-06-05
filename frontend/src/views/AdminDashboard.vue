@@ -117,27 +117,27 @@
                 <div v-if="msg.is_deleted" class="deleted-badge">已删除</div>
               </td>
               <td class="col-status">
-                <span class="status-badge" :class="msg.status">
-                  {{ getStatusText(msg.status) }}
+                <span class="status-badge" :class="msg.is_deleted ? 'deleted' : msg.status">
+                  {{ getStatusText(msg.status, msg.is_deleted) }}
                 </span>
               </td>
               <td class="col-time">{{ formatTime(msg.created_at) }}</td>
               <td class="col-actions">
                 <div class="action-buttons">
                   <button
-                    v-if="msg.status === 'pending'"
                     class="row-btn approve"
                     @click="handleReview(msg.id, 'approved')"
-                    :disabled="loading"
+                    :disabled="loading || msg.is_deleted"
+                    :class="{ active: msg.status === 'approved' }"
                     title="通过"
                   >
                     ✓
                   </button>
                   <button
-                    v-if="msg.status === 'pending'"
                     class="row-btn reject"
                     @click="handleReview(msg.id, 'rejected')"
-                    :disabled="loading"
+                    :disabled="loading || msg.is_deleted"
+                    :class="{ active: msg.status === 'rejected' }"
                     title="拒绝"
                   >
                     ✕
@@ -183,9 +183,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  getAdminStats,
   getAdminMessages,
   reviewMessage,
   deleteMessage,
@@ -224,7 +225,8 @@ const statusTabs = [
   { label: '全部', value: null },
   { label: '待审核', value: 'pending' },
   { label: '已通过', value: 'approved' },
-  { label: '已拒绝', value: 'rejected' }
+  { label: '已拒绝', value: 'rejected' },
+  { label: '已删除', value: 'deleted' }
 ]
 
 const isAllSelected = computed(() => {
@@ -236,7 +238,8 @@ const getAvatar = (username) => {
   return username ? username.charAt(0).toUpperCase() : '?'
 }
 
-const getStatusText = (status) => {
+const getStatusText = (status, isDeleted) => {
+  if (isDeleted) return '已删除'
   const map = {
     pending: '待审核',
     approved: '已通过',
@@ -258,16 +261,8 @@ const formatTime = (dateStr) => {
 
 const fetchStats = async () => {
   try {
-    const [pendingRes, approvedRes, rejectedRes, allRes] = await Promise.all([
-      getAdminMessages(1, 1, 'pending'),
-      getAdminMessages(1, 1, 'approved'),
-      getAdminMessages(1, 1, 'rejected'),
-      getAdminMessages(1, 1, null)
-    ])
-    stats.pending = pendingRes.data.pagination.total
-    stats.approved = approvedRes.data.pagination.total
-    stats.rejected = rejectedRes.data.pagination.total
-    stats.deleted = allRes.data.messages.filter(m => m.is_deleted).length > 0 ? '有' : 0
+    const response = await getAdminStats()
+    Object.assign(stats, response.data.stats)
   } catch (err) {
     console.error('获取统计失败:', err)
   }
@@ -384,8 +379,17 @@ const goHome = () => {
 }
 
 onMounted(() => {
+  document.body.classList.add('admin-page-body')
+  const appEl = document.getElementById('app')
+  if (appEl) appEl.classList.add('admin-page-app')
   fetchMessages(1)
   fetchStats()
+})
+
+onUnmounted(() => {
+  document.body.classList.remove('admin-page-body')
+  const appEl = document.getElementById('app')
+  if (appEl) appEl.classList.remove('admin-page-app')
 })
 </script>
 
@@ -394,6 +398,9 @@ onMounted(() => {
   padding: 0;
   min-height: 100vh;
   background: #f5f7fa;
+  border-radius: 0;
+  margin: 0;
+  max-width: 100%;
 }
 
 .dashboard-header {
@@ -777,6 +784,11 @@ onMounted(() => {
   color: #721c24;
 }
 
+.status-badge.deleted {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
 .col-time {
   width: 160px;
   color: #888;
@@ -821,12 +833,22 @@ onMounted(() => {
   color: white;
 }
 
+.row-btn.approve.active {
+  background: #27ae60;
+  color: white;
+}
+
 .row-btn.reject {
   background: #f8d7da;
   color: #721c24;
 }
 
 .row-btn.reject:hover:not(:disabled) {
+  background: #e74c3c;
+  color: white;
+}
+
+.row-btn.reject.active {
   background: #e74c3c;
   color: white;
 }

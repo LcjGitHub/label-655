@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -436,13 +436,23 @@ app.get('/api/admin/me', authenticateAdmin, (req, res) => {
   }
 });
 
+app.get('/api/admin/stats', authenticateAdmin, (req, res) => {
+  try {
+    const stats = getMessageStats();
+    res.json({ stats });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取统计数据失败' });
+  }
+});
+
 app.get('/api/admin/messages', authenticateAdmin, (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const pageSize = parseInt(req.query.pageSize) || 10;
   const status = req.query.status || null;
 
   try {
-    const result = getAllMessagesForAdmin(page, pageSize, status, true);
+    const result = getAllMessagesForAdmin(page, pageSize, status);
     res.json(result);
   } catch (err) {
     console.error(err);

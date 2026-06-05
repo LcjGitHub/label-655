@@ -15,3 +15,13 @@ body {
   max-width: 900px;
   margin: 0 auto;
 }
+
+body.admin-page-body {
+  padding: 0;
+  background: #f5f7fa;
+}
+
+#app.admin-page-app {
+  max-width: 100%;
+  margin: 0;
+}

@@ -113,6 +113,10 @@ export const getAdminInfo = () => {
   return api.get('/admin/me')
 }
 
+export const getAdminStats = () => {
+  return api.get('/admin/stats')
+}
+
 export const getAdminMessages = (page = 1, pageSize = 10, status = null) => {
   const params = { page, pageSize }
   if (status) params.status = status

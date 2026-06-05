@@ -208,19 +208,21 @@ function getMessages(page, pageSize) {
   };
 }
 
-function getAllMessagesForAdmin(page, pageSize, status = null, includeDeleted = true) {
+function getAllMessagesForAdmin(page, pageSize, status = null) {
   if (pageSize < 1) pageSize = 10;
   if (pageSize > 200) pageSize = 200;
 
   let whereClauses = [];
   let params = [];
 
-  if (!includeDeleted) {
+  if (status === 'deleted') {
+    whereClauses.push('is_deleted = 1');
+  } else {
     whereClauses.push('is_deleted = 0');
-  }
-  if (status && ['pending', 'approved', 'rejected'].includes(status)) {
-    whereClauses.push('status = ?');
-    params.push(status);
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      whereClauses.push('status = ?');
+      params.push(status);
+    }
   }
 
   const whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
@@ -250,6 +252,20 @@ function getAllMessagesForAdmin(page, pageSize, status = null, includeDeleted = 
       hasNext: page < totalPages,
       hasPrev: page > 1
     }
+  };
+}
+
+function getMessageStats() {
+  const pendingStmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'pending'");
+  const approvedStmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved'");
+  const rejectedStmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'rejected'");
+  const deletedStmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE is_deleted = 1');
+
+  return {
+    pending: pendingStmt.get().count,
+    approved: approvedStmt.get().count,
+    rejected: rejectedStmt.get().count,
+    deleted: deletedStmt.get().count
   };
 }
 
@@ -300,8 +316,8 @@ function batchSoftDeleteMessages(messageIds) {
 function insertMessage(userId, username, content) {
   const createdAt = new Date().toISOString();
 
-  const stmt = db.prepare('INSERT INTO messages (user_id, username, content, created_at) VALUES (?, ?, ?, ?)');
-  const result = stmt.run(userId, username, content, createdAt);
+  const stmt = db.prepare('INSERT INTO messages (user_id, username, content, created_at, status) VALUES (?, ?, ?, ?, ?)');
+  const result = stmt.run(userId, username, content, createdAt, 'pending');
 
   const getStmt = db.prepare('SELECT * FROM messages WHERE id = ?');
   const message = getStmt.get(result.lastInsertRowid);
@@ -473,6 +489,7 @@ module.exports = {
   getAdminByUsername,
   getAdminById,
   getAllMessagesForAdmin,
+  getMessageStats,
   reviewMessage,
   softDeleteMessage,
   batchReviewMessages,
