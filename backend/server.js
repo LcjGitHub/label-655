@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getMessages, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById } = require('./database');
+const { initDatabase, getMessages, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getRepliesByMessageId, insertReply, getMessageById, getReplyById } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -202,6 +202,89 @@ app.post('/api/messages', authenticateToken, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '提交留言失败' });
+  }
+});
+
+app.get('/api/messages/:messageId/replies', (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    const replies = getRepliesByMessageId(messageId);
+
+    const nestedReplies = replies.reduce((acc, reply) => {
+      if (!reply.parent_reply_id) {
+        acc.push({
+          ...reply,
+          children: replies.filter(r => r.parent_reply_id === reply.id)
+        });
+      }
+      return acc;
+    }, []);
+
+    res.json({ replies: nestedReplies, total: replies.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取回复列表失败' });
+  }
+});
+
+app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+  const { content, parentReplyId } = req.body;
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  if (!content) {
+    return res.status(400).json({ error: '回复内容不能为空' });
+  }
+
+  const trimmedContent = content.trim();
+
+  if (trimmedContent.length === 0) {
+    return res.status(400).json({ error: '回复内容不能为空' });
+  }
+
+  if (trimmedContent.length > 300) {
+    return res.status(400).json({ error: '回复内容不能超过300个字符' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    let validParentReplyId = null;
+    if (parentReplyId !== undefined && parentReplyId !== null) {
+      validParentReplyId = parseInt(parentReplyId);
+      if (isNaN(validParentReplyId) || validParentReplyId <= 0) {
+        return res.status(400).json({ error: '无效的父回复ID' });
+      }
+      const parentReply = getReplyById(validParentReplyId);
+      if (!parentReply) {
+        return res.status(404).json({ error: '父回复不存在' });
+      }
+      if (parentReply.message_id !== messageId) {
+        return res.status(400).json({ error: '父回复不属于该留言' });
+      }
+    }
+
+    const reply = insertReply(messageId, req.user.username, trimmedContent, validParentReplyId);
+    res.status(201).json({ reply });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '提交回复失败' });
   }
 });
 

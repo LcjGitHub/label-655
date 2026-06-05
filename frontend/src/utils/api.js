@@ -71,4 +71,12 @@ export const submitMessage = (content) => {
   return api.post('/messages', { content })
 }
 
+export const getReplies = (messageId) => {
+  return api.get(`/messages/${messageId}/replies`)
+}
+
+export const submitReply = (messageId, content, parentReplyId = null) => {
+  return api.post(`/messages/${messageId}/replies`, { content, parentReplyId })
+}
+
 export default api

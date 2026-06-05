@@ -30,6 +30,17 @@ function createTables() {
       content TEXT NOT NULL,
       created_at DATETIME NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users (id)
+    );
+
+    CREATE TABLE IF NOT EXISTS replies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME NOT NULL,
+      parent_reply_id INTEGER,
+      FOREIGN KEY (message_id) REFERENCES messages (id),
+      FOREIGN KEY (parent_reply_id) REFERENCES replies (id)
     )
   `);
 }
@@ -106,6 +117,45 @@ function insertMessage(userId, username, content) {
   return message;
 }
 
+function getRepliesByMessageId(messageId) {
+  const stmt = db.prepare(`
+    SELECT r1.*, r2.username as parent_username
+    FROM replies r1
+    LEFT JOIN replies r2 ON r1.parent_reply_id = r2.id
+    WHERE r1.message_id = ?
+    ORDER BY r1.created_at ASC
+  `);
+  const replies = stmt.all(messageId);
+  return replies;
+}
+
+function insertReply(messageId, username, content, parentReplyId = null) {
+  const createdAt = new Date().toISOString();
+
+  const stmt = db.prepare('INSERT INTO replies (message_id, username, content, created_at, parent_reply_id) VALUES (?, ?, ?, ?, ?)');
+  const result = stmt.run(messageId, username, content, createdAt, parentReplyId);
+
+  const getStmt = db.prepare(`
+    SELECT r1.*, r2.username as parent_username
+    FROM replies r1
+    LEFT JOIN replies r2 ON r1.parent_reply_id = r2.id
+    WHERE r1.id = ?
+  `);
+  const reply = getStmt.get(result.lastInsertRowid);
+
+  return reply;
+}
+
+function getMessageById(messageId) {
+  const stmt = db.prepare('SELECT * FROM messages WHERE id = ?');
+  return stmt.get(messageId);
+}
+
+function getReplyById(replyId) {
+  const stmt = db.prepare('SELECT * FROM replies WHERE id = ?');
+  return stmt.get(replyId);
+}
+
 module.exports = {
   initDatabase,
   getMessages,
@@ -113,5 +163,9 @@ module.exports = {
   createUser,
   getUserByUsername,
   getUserByEmail,
-  getUserById
+  getUserById,
+  getRepliesByMessageId,
+  insertReply,
+  getMessageById,
+  getReplyById
 };
