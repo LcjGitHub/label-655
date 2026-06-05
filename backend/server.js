@@ -1,21 +1,170 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { initDatabase, getMessages, insertMessage } = require('./database');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { initDatabase, getMessages, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById } = require('./database');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: '未登录，请先登录' });
+  }
+
+  try {
+    const user = jwt.verify(token, JWT_SECRET);
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: '登录已过期，请重新登录' });
+  }
+}
+
+function validatePassword(password) {
+  if (password.length < 8) {
+    return '密码长度至少8位';
+  }
+  if (!/[a-zA-Z]/.test(password)) {
+    return '密码必须包含字母';
+  }
+  if (!/[0-9]/.test(password)) {
+    return '密码必须包含数字';
+  }
+  return null;
+}
+
+function validateEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const fs = require('fs');
+const distPath = path.join(__dirname, '..', 'frontend', 'dist');
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const distPath = path.join(__dirname, '..', 'frontend', 'dist');
-const fs = require('fs');
-if (fs.existsSync(distPath)) {
-  console.log('检测到前端构建产物，启用静态文件托管');
-  app.use(express.static(distPath));
-}
+app.post('/api/auth/register', (req, res) => {
+  const { username, email, password } = req.body;
+
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: '用户名、邮箱和密码不能为空' });
+  }
+
+  const trimmedUsername = username.trim();
+  const trimmedEmail = email.trim();
+
+  if (trimmedUsername.length === 0 || trimmedEmail.length === 0) {
+    return res.status(400).json({ error: '用户名和邮箱不能为空' });
+  }
+
+  if (trimmedUsername.length > 20) {
+    return res.status(400).json({ error: '用户名不能超过20个字符' });
+  }
+
+  if (!validateEmail(trimmedEmail)) {
+    return res.status(400).json({ error: '邮箱格式不正确' });
+  }
+
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
+  }
+
+  try {
+    const existingUser = getUserByUsername(trimmedUsername);
+    if (existingUser) {
+      return res.status(400).json({ error: '用户名已被注册' });
+    }
+
+    const existingEmail = getUserByEmail(trimmedEmail);
+    if (existingEmail) {
+      return res.status(400).json({ error: '邮箱已被注册' });
+    }
+
+    const user = createUser(trimmedUsername, password, trimmedEmail);
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      message: '注册成功',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '注册失败，请稍后重试' });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: '用户名和密码不能为空' });
+  }
+
+  const trimmedUsername = username.trim();
+
+  try {
+    const user = getUserByUsername(trimmedUsername);
+    if (!user) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const isPasswordValid = bcrypt.compareSync(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: '登录成功',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '登录失败，请稍后重试' });
+  }
+});
+
+app.get('/api/auth/user', authenticateToken, (req, res) => {
+  try {
+    const user = getUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    res.json({ user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取用户信息失败' });
+  }
+});
 
 app.get('/api/messages', (req, res) => {
   const page = parseInt(req.query.page) || 1;
@@ -30,22 +179,17 @@ app.get('/api/messages', (req, res) => {
   }
 });
 
-app.post('/api/messages', (req, res) => {
-  const { username, content } = req.body;
+app.post('/api/messages', authenticateToken, (req, res) => {
+  const { content } = req.body;
 
-  if (!username || !content) {
-    return res.status(400).json({ error: '用户名和留言内容不能为空' });
+  if (!content) {
+    return res.status(400).json({ error: '留言内容不能为空' });
   }
 
-  const trimmedUsername = username.trim();
   const trimmedContent = content.trim();
 
-  if (trimmedUsername.length === 0 || trimmedContent.length === 0) {
-    return res.status(400).json({ error: '用户名和留言内容不能为空' });
-  }
-
-  if (trimmedUsername.length > 50) {
-    return res.status(400).json({ error: '用户名不能超过50个字符' });
+  if (trimmedContent.length === 0) {
+    return res.status(400).json({ error: '留言内容不能为空' });
   }
 
   if (trimmedContent.length > 500) {
@@ -53,7 +197,7 @@ app.post('/api/messages', (req, res) => {
   }
 
   try {
-    const message = insertMessage(trimmedUsername, trimmedContent);
+    const message = insertMessage(req.user.id, req.user.username, trimmedContent);
     res.status(201).json({ message });
   } catch (err) {
     console.error(err);
@@ -62,6 +206,9 @@ app.post('/api/messages', (req, res) => {
 });
 
 if (fs.existsSync(distPath)) {
+  console.log('检测到前端构建产物，启用静态文件托管');
+  app.use(express.static(distPath));
+
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) {
       return next();

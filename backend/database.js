@@ -1,5 +1,6 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 
 const dbPath = path.join(__dirname, 'messages.db');
 let db;
@@ -9,18 +10,56 @@ function initDatabase() {
   console.log('已连接到 SQLite 数据库');
 
   createTables();
-  console.log('messages 表已就绪');
+  console.log('数据库表已就绪');
 }
 
 function createTables() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      created_at DATETIME NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       username TEXT NOT NULL,
       content TEXT NOT NULL,
-      created_at DATETIME NOT NULL
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id)
     )
   `);
+}
+
+function createUser(username, password, email) {
+  const createdAt = new Date().toISOString();
+  const hashedPassword = bcrypt.hashSync(password, 10);
+
+  const stmt = db.prepare('INSERT INTO users (username, password, email, created_at) VALUES (?, ?, ?, ?)');
+  const result = stmt.run(username, hashedPassword, email, createdAt);
+
+  const getStmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
+  const user = getStmt.get(result.lastInsertRowid);
+
+  return user;
+}
+
+function getUserByUsername(username) {
+  const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
+  return stmt.get(username);
+}
+
+function getUserByEmail(email) {
+  const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
+  return stmt.get(email);
+}
+
+function getUserById(id) {
+  const stmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
+  return stmt.get(id);
 }
 
 function getMessages(page, pageSize) {
@@ -55,11 +94,11 @@ function getMessages(page, pageSize) {
   };
 }
 
-function insertMessage(username, content) {
+function insertMessage(userId, username, content) {
   const createdAt = new Date().toISOString();
 
-  const stmt = db.prepare('INSERT INTO messages (username, content, created_at) VALUES (?, ?, ?)');
-  const result = stmt.run(username, content, createdAt);
+  const stmt = db.prepare('INSERT INTO messages (user_id, username, content, created_at) VALUES (?, ?, ?, ?)');
+  const result = stmt.run(userId, username, content, createdAt);
 
   const getStmt = db.prepare('SELECT * FROM messages WHERE id = ?');
   const message = getStmt.get(result.lastInsertRowid);
@@ -70,5 +109,9 @@ function insertMessage(username, content) {
 module.exports = {
   initDatabase,
   getMessages,
-  insertMessage
+  insertMessage,
+  createUser,
+  getUserByUsername,
+  getUserByEmail,
+  getUserById
 };
