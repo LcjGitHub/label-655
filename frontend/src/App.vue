@@ -7,9 +7,16 @@
           <p class="subtitle">分享你的想法，与大家交流</p>
         </div>
         <nav class="nav-menu">
-          <template v-if="isLoggedIn">
+          <router-link v-if="!isAdminPage" to="/admin/login" class="nav-btn admin-link">
+            🛡️ 管理后台
+          </router-link>
+          <template v-if="isAdminPage">
+            <span class="welcome-text">🛡️ 管理员: {{ currentAdmin?.username }}</span>
+            <button class="nav-btn logout-btn" @click="handleAdminLogout">退出</button>
+          </template>
+          <template v-else-if="isLoggedIn">
             <span class="welcome-text">👤 {{ currentUser?.username }}</span>
-            <button class="nav-btn logout-btn" @click="handleLogout">退出登录</button>
+            <button class="nav-btn logout-btn" @click="handleUserLogout">退出登录</button>
           </template>
           <template v-else>
             <router-link to="/login" class="nav-btn login-btn">登录</router-link>
@@ -23,25 +30,36 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from './store/auth.js'
+import { useAdminStore } from './store/admin.js'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const adminStore = useAdminStore()
 
 const isLoggedIn = authStore.isLoggedIn
 const currentUser = authStore.currentUser
+const currentAdmin = adminStore.currentAdmin
+
+const isAdminPage = computed(() => route.path.startsWith('/admin'))
 
 const goHome = () => {
   router.push('/')
 }
 
-const handleLogout = () => {
+const handleUserLogout = () => {
   authStore.clearAuth()
   if (route.path !== '/') {
     router.push('/')
   }
+}
+
+const handleAdminLogout = () => {
+  adminStore.clearAuth()
+  router.push('/admin/login')
 }
 </script>
 
@@ -139,6 +157,17 @@ const handleLogout = () => {
 
 .logout-btn:hover {
   background: rgba(255, 255, 255, 0.3);
+  border-color: white;
+}
+
+.admin-link {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+}
+
+.admin-link:hover {
+  background: rgba(255, 255, 255, 0.25);
   border-color: white;
 }
 

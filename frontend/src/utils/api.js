@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { useAuthStore } from '../store/auth.js'
+import { useAdminStore } from '../store/admin.js'
 
 const api = axios.create({
   baseURL: '/api',
@@ -17,10 +18,18 @@ export const setupApiInterceptors = (router) => {
 
 api.interceptors.request.use(
   (config) => {
-    const authStore = useAuthStore()
-    const token = authStore.getToken()
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+    if (config.url.startsWith('/admin/')) {
+      const adminStore = useAdminStore()
+      const token = adminStore.getToken()
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
+    } else {
+      const authStore = useAuthStore()
+      const token = authStore.getToken()
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
     }
     return config
   },
@@ -35,13 +44,26 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      const authStore = useAuthStore()
-      authStore.clearAuth()
-      
-      if (routerInstance) {
-        const currentPath = routerInstance.currentRoute.value.path
-        if (currentPath !== '/login' && currentPath !== '/register') {
-          routerInstance.push('/login')
+      const config = error.config || {}
+      const isAdminApi = config.url && config.url.includes('/admin/')
+
+      if (isAdminApi) {
+        const adminStore = useAdminStore()
+        adminStore.clearAuth()
+        if (routerInstance) {
+          const currentPath = routerInstance.currentRoute.value.path
+          if (currentPath !== '/admin/login') {
+            routerInstance.push('/admin/login')
+          }
+        }
+      } else {
+        const authStore = useAuthStore()
+        authStore.clearAuth()
+        if (routerInstance) {
+          const currentPath = routerInstance.currentRoute.value.path
+          if (currentPath !== '/login' && currentPath !== '/register') {
+            routerInstance.push('/login')
+          }
         }
       }
     }
@@ -81,6 +103,36 @@ export const submitReply = (messageId, content, parentReplyId = null) => {
 
 export const toggleLike = (messageId) => {
   return api.post(`/messages/${messageId}/like`)
+}
+
+export const adminLogin = (username, password) => {
+  return api.post('/admin/login', { username, password })
+}
+
+export const getAdminInfo = () => {
+  return api.get('/admin/me')
+}
+
+export const getAdminMessages = (page = 1, pageSize = 10, status = null) => {
+  const params = { page, pageSize }
+  if (status) params.status = status
+  return api.get('/admin/messages', { params })
+}
+
+export const reviewMessage = (messageId, status) => {
+  return api.put(`/admin/messages/${messageId}/review`, { status })
+}
+
+export const deleteMessage = (messageId) => {
+  return api.delete(`/admin/messages/${messageId}`)
+}
+
+export const batchReviewMessages = (ids, status) => {
+  return api.post('/admin/messages/batch-review', { ids, status })
+}
+
+export const batchDeleteMessages = (ids) => {
+  return api.post('/admin/messages/batch-delete', { ids })
 }
 
 export default api

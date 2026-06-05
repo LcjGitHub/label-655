@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -18,6 +18,26 @@ function authenticateToken(req, res, next) {
   try {
     const user = jwt.verify(token, JWT_SECRET);
     req.user = user;
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: '登录已过期，请重新登录' });
+  }
+}
+
+function authenticateAdmin(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: '未登录，请先登录' });
+  }
+
+  try {
+    const admin = jwt.verify(token, JWT_SECRET);
+    if (!admin.isAdmin) {
+      return res.status(403).json({ error: '无权限访问，需要管理员权限' });
+    }
+    req.admin = admin;
     next();
   } catch (err) {
     return res.status(403).json({ error: '登录已过期，请重新登录' });
@@ -360,6 +380,152 @@ app.post('/api/messages/:messageId/like', (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '操作失败，请稍后重试' });
+  }
+});
+
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: '用户名和密码不能为空' });
+  }
+
+  const trimmedUsername = username.trim();
+
+  try {
+    const admin = getAdminByUsername(trimmedUsername);
+    if (!admin) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const isPasswordValid = bcrypt.compareSync(password, admin.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const token = jwt.sign(
+      { id: admin.id, username: admin.username, isAdmin: true },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: '登录成功',
+      token,
+      admin: {
+        id: admin.id,
+        username: admin.username
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '登录失败，请稍后重试' });
+  }
+});
+
+app.get('/api/admin/me', authenticateAdmin, (req, res) => {
+  try {
+    const admin = getAdminById(req.admin.id);
+    if (!admin) {
+      return res.status(404).json({ error: '管理员不存在' });
+    }
+    res.json({ admin });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取管理员信息失败' });
+  }
+});
+
+app.get('/api/admin/messages', authenticateAdmin, (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 10;
+  const status = req.query.status || null;
+
+  try {
+    const result = getAllMessagesForAdmin(page, pageSize, status, true);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取留言列表失败' });
+  }
+});
+
+app.put('/api/admin/messages/:id/review', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.id);
+  const { status } = req.body;
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: '无效的审核状态' });
+  }
+
+  try {
+    const message = reviewMessage(messageId, status);
+    res.json({ message: '审核成功', data: message });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message || '审核失败' });
+  }
+});
+
+app.delete('/api/admin/messages/:id', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.id);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    softDeleteMessage(messageId);
+    res.json({ message: '删除成功' });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message || '删除失败' });
+  }
+});
+
+app.post('/api/admin/messages/batch-review', authenticateAdmin, (req, res) => {
+  const { ids, status } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: '请选择要审核的留言' });
+  }
+
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: '无效的审核状态' });
+  }
+
+  try {
+    const count = batchReviewMessages(ids, status);
+    res.json({ message: `已成功审核 ${count} 条留言`, count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || '批量审核失败' });
+  }
+});
+
+app.post('/api/admin/messages/batch-delete', authenticateAdmin, (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: '请选择要删除的留言' });
+  }
+
+  try {
+    const count = batchSoftDeleteMessages(ids);
+    res.json({ message: `已成功删除 ${count} 条留言`, count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || '批量删除失败' });
   }
 });
 

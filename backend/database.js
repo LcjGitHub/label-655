@@ -23,12 +23,21 @@ function createTables() {
       created_at DATETIME NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      created_at DATETIME NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
       username TEXT NOT NULL,
       content TEXT NOT NULL,
       likes INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      is_deleted INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users (id)
     );
@@ -57,17 +66,46 @@ function createTables() {
     )
   `);
 
+  seedDefaultAdmin();
   migrateDatabase();
+}
+
+function seedDefaultAdmin() {
+  try {
+    const stmt = db.prepare('SELECT COUNT(*) as count FROM admins');
+    const { count } = stmt.get();
+    if (count === 0) {
+      const createdAt = new Date().toISOString();
+      const hashedPassword = bcrypt.hashSync('admin123', 10);
+      const insertStmt = db.prepare('INSERT INTO admins (username, password, created_at) VALUES (?, ?, ?)');
+      insertStmt.run('admin', hashedPassword, createdAt);
+      console.log('已创建默认管理员账号: admin / admin123');
+    }
+  } catch (err) {
+    console.error('创建默认管理员失败:', err);
+  }
 }
 
 function migrateDatabase() {
   try {
     const msgColumns = db.prepare("PRAGMA table_info(messages)").all();
     const hasLikesColumn = msgColumns.some(col => col.name === 'likes');
+    const hasStatusColumn = msgColumns.some(col => col.name === 'status');
+    const hasIsDeletedColumn = msgColumns.some(col => col.name === 'is_deleted');
 
     if (!hasLikesColumn) {
       db.exec('ALTER TABLE messages ADD COLUMN likes INTEGER NOT NULL DEFAULT 0');
       console.log('已迁移 messages 表，添加 likes 字段');
+    }
+
+    if (!hasStatusColumn) {
+      db.exec("ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'");
+      console.log('已迁移 messages 表，添加 status 字段');
+    }
+
+    if (!hasIsDeletedColumn) {
+      db.exec('ALTER TABLE messages ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0');
+      console.log('已迁移 messages 表，添加 is_deleted 字段');
     }
 
     const likesColumns = db.prepare("PRAGMA table_info(likes)").all();
@@ -98,6 +136,16 @@ function migrateDatabase() {
   } catch (err) {
     console.error('数据库迁移失败:', err);
   }
+}
+
+function getAdminByUsername(username) {
+  const stmt = db.prepare('SELECT * FROM admins WHERE username = ?');
+  return stmt.get(username);
+}
+
+function getAdminById(id) {
+  const stmt = db.prepare('SELECT id, username, created_at FROM admins WHERE id = ?');
+  return stmt.get(id);
 }
 
 function createUser(username, password, email) {
@@ -132,7 +180,7 @@ function getMessages(page, pageSize) {
   if (pageSize < 1) pageSize = 5;
   if (pageSize > 100) pageSize = 100;
 
-  const countStmt = db.prepare('SELECT COUNT(*) as total FROM messages');
+  const countStmt = db.prepare("SELECT COUNT(*) as total FROM messages WHERE is_deleted = 0 AND status = 'approved'");
   const { total } = countStmt.get();
   const totalPages = Math.ceil(total / pageSize);
 
@@ -144,7 +192,7 @@ function getMessages(page, pageSize) {
   }
 
   const offset = (page - 1) * pageSize;
-  const stmt = db.prepare('SELECT * FROM messages ORDER BY created_at DESC LIMIT ? OFFSET ?');
+  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY created_at DESC LIMIT ? OFFSET ?");
   const messages = stmt.all(pageSize, offset);
 
   return {
@@ -158,6 +206,95 @@ function getMessages(page, pageSize) {
       hasPrev: page > 1
     }
   };
+}
+
+function getAllMessagesForAdmin(page, pageSize, status = null, includeDeleted = true) {
+  if (pageSize < 1) pageSize = 10;
+  if (pageSize > 200) pageSize = 200;
+
+  let whereClauses = [];
+  let params = [];
+
+  if (!includeDeleted) {
+    whereClauses.push('is_deleted = 0');
+  }
+  if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+    whereClauses.push('status = ?');
+    params.push(status);
+  }
+
+  const whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  const countStmt = db.prepare(`SELECT COUNT(*) as total FROM messages ${whereSql}`);
+  const { total } = countStmt.get(...params);
+  const totalPages = Math.ceil(total / pageSize);
+
+  if (page < 1) {
+    page = 1;
+  }
+  if (totalPages > 0 && page > totalPages) {
+    page = totalPages;
+  }
+
+  const offset = (page - 1) * pageSize;
+  const stmt = db.prepare(`SELECT * FROM messages ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`);
+  const messages = stmt.all(...params, pageSize, offset);
+
+  return {
+    messages,
+    pagination: {
+      currentPage: page,
+      pageSize: pageSize,
+      total: total,
+      totalPages: totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  };
+}
+
+function reviewMessage(messageId, status) {
+  if (!['approved', 'rejected'].includes(status)) {
+    throw new Error('无效的审核状态');
+  }
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message) {
+    throw new Error('留言不存在');
+  }
+  db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, messageId);
+  return db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+}
+
+function softDeleteMessage(messageId) {
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message) {
+    throw new Error('留言不存在');
+  }
+  db.prepare('UPDATE messages SET is_deleted = 1 WHERE id = ?').run(messageId);
+  return true;
+}
+
+function batchReviewMessages(messageIds, status) {
+  if (!['approved', 'rejected'].includes(status)) {
+    throw new Error('无效的审核状态');
+  }
+  if (!Array.isArray(messageIds) || messageIds.length === 0) {
+    return 0;
+  }
+  const placeholders = messageIds.map(() => '?').join(',');
+  const stmt = db.prepare(`UPDATE messages SET status = ? WHERE id IN (${placeholders})`);
+  const result = stmt.run(status, ...messageIds);
+  return result.changes;
+}
+
+function batchSoftDeleteMessages(messageIds) {
+  if (!Array.isArray(messageIds) || messageIds.length === 0) {
+    return 0;
+  }
+  const placeholders = messageIds.map(() => '?').join(',');
+  const stmt = db.prepare(`UPDATE messages SET is_deleted = 1 WHERE id IN (${placeholders})`);
+  const result = stmt.run(...messageIds);
+  return result.changes;
 }
 
 function insertMessage(userId, username, content) {
@@ -230,7 +367,7 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   if (pageSize < 1) pageSize = 5;
   if (pageSize > 100) pageSize = 100;
 
-  const countStmt = db.prepare('SELECT COUNT(*) as total FROM messages');
+  const countStmt = db.prepare("SELECT COUNT(*) as total FROM messages WHERE is_deleted = 0 AND status = 'approved'");
   const { total } = countStmt.get();
   const totalPages = Math.ceil(total / pageSize);
 
@@ -242,7 +379,7 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   }
 
   const offset = (page - 1) * pageSize;
-  const stmt = db.prepare('SELECT * FROM messages ORDER BY created_at DESC LIMIT ? OFFSET ?');
+  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY created_at DESC LIMIT ? OFFSET ?");
   const messages = stmt.all(pageSize, offset);
 
   let likedMessageIds = [];
@@ -333,6 +470,13 @@ module.exports = {
   getUserByUsername,
   getUserByEmail,
   getUserById,
+  getAdminByUsername,
+  getAdminById,
+  getAllMessagesForAdmin,
+  reviewMessage,
+  softDeleteMessage,
+  batchReviewMessages,
+  batchSoftDeleteMessages,
   getRepliesByMessageId,
   insertReply,
   getMessageById,
