@@ -1,6 +1,6 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 
 const dbPath = path.join(__dirname, 'messages.db');
 let db;

@@ -59,7 +59,7 @@
           <p v-if="errors.confirmPassword" class="field-error">{{ errors.confirmPassword }}</p>
         </div>
 
-        <button type="submit" class="submit-btn" :disabled="submitting || !isFormValid">
+        <button type="submit" class="submit-btn" :disabled="submitting">
           {{ submitting ? '注册中...' : '注 册' }}
         </button>
 
@@ -77,9 +77,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { register, setAuth, isAuthenticated } from '../utils/api.js'
+import { register } from '../utils/api.js'
+import { useAuthStore } from '../store/auth.js'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const form = reactive({
   username: '',
@@ -103,15 +105,6 @@ const hasLetter = computed(() => /[a-zA-Z]/.test(form.password))
 const hasNumber = computed(() => /[0-9]/.test(form.password))
 
 const isPasswordValid = computed(() => hasMinLength.value && hasLetter.value && hasNumber.value)
-
-const isFormValid = computed(() => {
-  return form.username.trim() !== '' &&
-         form.email.trim() !== '' &&
-         form.password !== '' &&
-         form.confirmPassword !== '' &&
-         isPasswordValid.value &&
-         form.password === form.confirmPassword
-})
 
 const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -145,7 +138,7 @@ const validateForm = () => {
     errors.password = '密码不能为空'
     isValid = false
   } else if (!isPasswordValid.value) {
-    errors.password = '密码不符合要求'
+    errors.password = '密码不符合要求（至少8位，包含字母和数字）'
     isValid = false
   }
 
@@ -161,14 +154,15 @@ const validateForm = () => {
 }
 
 const handleSubmit = async () => {
-  if (!validateForm()) return
+  const isValid = validateForm()
+  if (!isValid) return
 
   submitting.value = true
   error.value = ''
 
   try {
     const response = await register(form.username, form.email, form.password)
-    setAuth(response.data.token, response.data.user)
+    authStore.setAuth(response.data.token, response.data.user)
     router.push('/')
   } catch (err) {
     error.value = err.response?.data?.error || '注册失败，请稍后重试'
@@ -179,7 +173,7 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
-  if (isAuthenticated()) {
+  if (authStore.isLoggedIn.value) {
     router.push('/')
   }
 })

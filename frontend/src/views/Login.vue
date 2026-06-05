@@ -30,7 +30,7 @@
           <p v-if="errors.password" class="field-error">{{ errors.password }}</p>
         </div>
 
-        <button type="submit" class="submit-btn" :disabled="submitting || !isFormValid">
+        <button type="submit" class="submit-btn" :disabled="submitting">
           {{ submitting ? '登录中...' : '登 录' }}
         </button>
 
@@ -46,11 +46,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { login, setAuth, isAuthenticated } from '../utils/api.js'
+import { login } from '../utils/api.js'
+import { useAuthStore } from '../store/auth.js'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const form = reactive({
   username: '',
@@ -64,10 +66,6 @@ const errors = reactive({
 
 const submitting = ref(false)
 const error = ref('')
-
-const isFormValid = computed(() => {
-  return form.username.trim() !== '' && form.password !== ''
-})
 
 const validateForm = () => {
   let isValid = true
@@ -88,14 +86,15 @@ const validateForm = () => {
 }
 
 const handleSubmit = async () => {
-  if (!validateForm()) return
+  const isValid = validateForm()
+  if (!isValid) return
 
   submitting.value = true
   error.value = ''
 
   try {
     const response = await login(form.username, form.password)
-    setAuth(response.data.token, response.data.user)
+    authStore.setAuth(response.data.token, response.data.user)
     router.push('/')
   } catch (err) {
     error.value = err.response?.data?.error || '登录失败，请稍后重试'
@@ -106,7 +105,7 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
-  if (isAuthenticated()) {
+  if (authStore.isLoggedIn.value) {
     router.push('/')
   }
 })

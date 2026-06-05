@@ -13,14 +13,16 @@
     <form v-else @submit.prevent="handleSubmit">
       <div class="form-group">
         <label for="username">用户名</label>
-        <input
-          id="username"
-          :value="currentUser?.username"
-          type="text"
-          disabled
-          class="disabled-input"
-        />
-        <span class="user-badge">已登录</span>
+        <div class="input-with-badge">
+          <input
+            id="username"
+            :value="currentUser?.username"
+            type="text"
+            disabled
+            class="disabled-input"
+          />
+          <span class="user-badge">已登录</span>
+        </div>
       </div>
 
       <div class="form-group">
@@ -47,12 +49,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { submitMessage, isAuthenticated, getCurrentUser } from '../utils/api.js'
+import { ref, computed } from 'vue'
+import { submitMessage } from '../utils/api.js'
+import { useAuthStore } from '../store/auth.js'
 
 const emit = defineEmits(['submitted'])
-const router = useRouter()
+const authStore = useAuthStore()
+
+const isLoggedIn = authStore.isLoggedIn
+const currentUser = authStore.currentUser
 
 const form = ref({
   content: ''
@@ -61,17 +66,10 @@ const form = ref({
 const submitting = ref(false)
 const error = ref('')
 const success = ref(false)
-const isLoggedIn = ref(false)
-const currentUser = ref(null)
 
 const isValid = computed(() => {
   return form.value.content.trim() !== ''
 })
-
-const updateAuthStatus = () => {
-  isLoggedIn.value = isAuthenticated()
-  currentUser.value = getCurrentUser()
-}
 
 const handleSubmit = async () => {
   if (!isValid.value) return
@@ -90,24 +88,12 @@ const handleSubmit = async () => {
       success.value = false
     }, 3000)
   } catch (err) {
-    if (err.response?.status === 401 || err.response?.status === 403) {
-      router.push('/login')
-    } else {
-      error.value = err.response?.data?.error || '提交失败，请稍后重试'
-    }
+    error.value = err.response?.data?.error || '提交失败，请稍后重试'
     console.error(err)
   } finally {
     submitting.value = false
   }
 }
-
-onMounted(() => {
-  updateAuthStatus()
-})
-
-router.afterEach(() => {
-  updateAuthStatus()
-})
 </script>
 
 <style scoped>
@@ -188,6 +174,12 @@ router.afterEach(() => {
   font-weight: 600;
 }
 
+.input-with-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .form-group input,
 .form-group textarea {
   width: 100%;
@@ -197,6 +189,10 @@ router.afterEach(() => {
   font-size: 1rem;
   transition: border-color 0.3s, box-shadow 0.3s;
   font-family: inherit;
+}
+
+.input-with-badge input {
+  padding-right: 90px;
 }
 
 .form-group input:focus,
@@ -228,6 +224,7 @@ router.afterEach(() => {
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .char-count {

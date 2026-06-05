@@ -23,40 +23,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { isAuthenticated, getCurrentUser, clearAuth } from './utils/api.js'
+import { useAuthStore } from './store/auth.js'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 
-const isLoggedIn = ref(false)
-const currentUser = ref(null)
-
-const updateAuthStatus = () => {
-  isLoggedIn.value = isAuthenticated()
-  currentUser.value = getCurrentUser()
-}
+const isLoggedIn = authStore.isLoggedIn
+const currentUser = authStore.currentUser
 
 const goHome = () => {
   router.push('/')
 }
 
 const handleLogout = () => {
-  clearAuth()
-  updateAuthStatus()
+  authStore.clearAuth()
   if (route.path !== '/') {
     router.push('/')
   }
 }
-
-onMounted(() => {
-  updateAuthStatus()
-})
-
-router.afterEach(() => {
-  updateAuthStatus()
-})
 </script>
 
 <style scoped>
