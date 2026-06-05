@@ -35,10 +35,12 @@ function createTables() {
 
     CREATE TABLE IF NOT EXISTS likes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      user_id INTEGER,
+      ip_address TEXT,
       message_id INTEGER NOT NULL,
       created_at DATETIME NOT NULL,
       UNIQUE(user_id, message_id),
+      UNIQUE(ip_address, message_id),
       FOREIGN KEY (user_id) REFERENCES users (id),
       FOREIGN KEY (message_id) REFERENCES messages (id)
     );
@@ -60,13 +62,38 @@ function createTables() {
 
 function migrateDatabase() {
   try {
-    const checkColumn = db.prepare("PRAGMA table_info(messages)");
-    const columns = checkColumn.all();
-    const hasLikesColumn = columns.some(col => col.name === 'likes');
+    const msgColumns = db.prepare("PRAGMA table_info(messages)").all();
+    const hasLikesColumn = msgColumns.some(col => col.name === 'likes');
 
     if (!hasLikesColumn) {
       db.exec('ALTER TABLE messages ADD COLUMN likes INTEGER NOT NULL DEFAULT 0');
       console.log('已迁移 messages 表，添加 likes 字段');
+    }
+
+    const likesColumns = db.prepare("PRAGMA table_info(likes)").all();
+    const hasIpColumn = likesColumns.some(col => col.name === 'ip_address');
+    const userIdCol = likesColumns.find(col => col.name === 'user_id');
+    const userIdNullable = userIdCol ? userIdCol.notnull === 0 : true;
+
+    if (!hasIpColumn || !userIdNullable) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS likes_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          ip_address TEXT,
+          message_id INTEGER NOT NULL,
+          created_at DATETIME NOT NULL,
+          UNIQUE(user_id, message_id),
+          UNIQUE(ip_address, message_id),
+          FOREIGN KEY (user_id) REFERENCES users (id),
+          FOREIGN KEY (message_id) REFERENCES messages (id)
+        );
+        INSERT INTO likes_new (id, user_id, message_id, created_at)
+          SELECT id, user_id, message_id, created_at FROM likes;
+        DROP TABLE IF EXISTS likes;
+        ALTER TABLE likes_new RENAME TO likes;
+      `);
+      console.log('已迁移 likes 表，添加 ip_address 字段');
     }
   } catch (err) {
     console.error('数据库迁移失败:', err);
@@ -184,12 +211,22 @@ function getReplyById(replyId) {
   return stmt.get(replyId);
 }
 
-function getLikeStatus(userId, messageId) {
-  const stmt = db.prepare('SELECT * FROM likes WHERE user_id = ? AND message_id = ?');
-  return stmt.get(userId, messageId) !== undefined;
+function getLikeStatus(userId, ipAddress, messageId) {
+  let stmt;
+  let params;
+  if (userId) {
+    stmt = db.prepare('SELECT * FROM likes WHERE user_id = ? AND message_id = ?');
+    params = [userId, messageId];
+  } else if (ipAddress) {
+    stmt = db.prepare('SELECT * FROM likes WHERE ip_address = ? AND message_id = ?');
+    params = [ipAddress, messageId];
+  } else {
+    return false;
+  }
+  return stmt.get(...params) !== undefined;
 }
 
-function getMessagesWithLikeStatus(page, pageSize, userId) {
+function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   if (pageSize < 1) pageSize = 5;
   if (pageSize > 100) pageSize = 100;
 
@@ -208,17 +245,18 @@ function getMessagesWithLikeStatus(page, pageSize, userId) {
   const stmt = db.prepare('SELECT * FROM messages ORDER BY created_at DESC LIMIT ? OFFSET ?');
   const messages = stmt.all(pageSize, offset);
 
+  let likedMessageIds = [];
   if (userId) {
     const likeStmt = db.prepare('SELECT message_id FROM likes WHERE user_id = ?');
-    const likedMessageIds = likeStmt.all(userId).map(row => row.message_id);
-    messages.forEach(msg => {
-      msg.is_liked = likedMessageIds.includes(msg.id);
-    });
-  } else {
-    messages.forEach(msg => {
-      msg.is_liked = false;
-    });
+    likedMessageIds = likeStmt.all(userId).map(row => row.message_id);
+  } else if (ipAddress) {
+    const likeStmt = db.prepare('SELECT message_id FROM likes WHERE ip_address = ?');
+    likedMessageIds = likeStmt.all(ipAddress).map(row => row.message_id);
   }
+
+  messages.forEach(msg => {
+    msg.is_liked = likedMessageIds.includes(msg.id);
+  });
 
   return {
     messages,
@@ -233,24 +271,57 @@ function getMessagesWithLikeStatus(page, pageSize, userId) {
   };
 }
 
-function toggleLike(userId, messageId) {
-  const existingLike = db.prepare('SELECT * FROM likes WHERE user_id = ? AND message_id = ?').get(userId, messageId);
-  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+function toggleLike(userId, ipAddress, messageId) {
+  if (!userId && !ipAddress) {
+    throw new Error('无法识别用户身份');
+  }
 
+  let whereClause;
+  let whereParams;
+  let insertFields;
+  let insertValues;
+
+  if (userId) {
+    whereClause = 'user_id = ? AND message_id = ?';
+    whereParams = [userId, messageId];
+    insertFields = 'user_id, message_id, created_at';
+    insertValues = [userId, messageId];
+  } else {
+    whereClause = 'ip_address = ? AND message_id = ?';
+    whereParams = [ipAddress, messageId];
+    insertFields = 'ip_address, message_id, created_at';
+    insertValues = [ipAddress, messageId];
+  }
+
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
   if (!message) {
     throw new Error('留言不存在');
   }
 
-  if (existingLike) {
-    db.prepare('DELETE FROM likes WHERE user_id = ? AND message_id = ?').run(userId, messageId);
-    db.prepare('UPDATE messages SET likes = likes - 1 WHERE id = ?').run(messageId);
-    return { liked: false, likes: message.likes - 1 };
-  } else {
-    const createdAt = new Date().toISOString();
-    db.prepare('INSERT INTO likes (user_id, message_id, created_at) VALUES (?, ?, ?)').run(userId, messageId, createdAt);
-    db.prepare('UPDATE messages SET likes = likes + 1 WHERE id = ?').run(messageId);
-    return { liked: true, likes: message.likes + 1 };
+  const existingLike = db.prepare(`SELECT * FROM likes WHERE ${whereClause}`).get(...whereParams);
+  const createdAt = new Date().toISOString();
+  let result;
+
+  try {
+    db.exec('BEGIN TRANSACTION');
+
+    if (existingLike) {
+      db.prepare(`DELETE FROM likes WHERE ${whereClause}`).run(...whereParams);
+      db.prepare('UPDATE messages SET likes = likes - 1 WHERE id = ?').run(messageId);
+      result = { liked: false, likes: message.likes - 1 };
+    } else {
+      db.prepare(`INSERT INTO likes (${insertFields}) VALUES (?, ?, ?)`).run(...insertValues, createdAt);
+      db.prepare('UPDATE messages SET likes = likes + 1 WHERE id = ?').run(messageId);
+      result = { liked: true, likes: message.likes + 1 };
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
+
+  return result;
 }
 
 module.exports = {

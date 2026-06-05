@@ -36,17 +36,20 @@
             class="like-btn"
             :class="{ 'liked': getLocalLikeStatus(message.id) }"
             :disabled="liking[message.id]"
+            :aria-label="getLocalLikeStatus(message.id) ? '取消点赞' : '点赞'"
+            :title="getLocalLikeStatus(message.id) ? '取消点赞' : '点赞'"
           >
             <span class="heart-icon">
-              <svg v-if="getLocalLikeStatus(message.id)" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+              <svg v-if="getLocalLikeStatus(message.id)" viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
                 <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
               </svg>
-              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
             </span>
             <span class="like-count">{{ getLocalLikes(message.id) }}</span>
           </button>
+          <p v-if="likeErrors[message.id]" class="error-text like-error">{{ likeErrors[message.id] }}</p>
         </div>
 
         <div v-if="showReplyForm[message.id]" class="reply-form">
@@ -215,6 +218,7 @@ const showAllReplies = reactive({})
 const localLikes = reactive({})
 const localLikeStatus = reactive({})
 const liking = reactive({})
+const likeErrors = reactive({})
 
 const fetchReplies = async (messageId) => {
   try {
@@ -228,6 +232,13 @@ const fetchReplies = async (messageId) => {
   }
 }
 
+const clearLocalLikeCache = () => {
+  Object.keys(localLikes).forEach(key => delete localLikes[key])
+  Object.keys(localLikeStatus).forEach(key => delete localLikeStatus[key])
+  Object.keys(liking).forEach(key => delete liking[key])
+  Object.keys(likeErrors).forEach(key => delete likeErrors[key])
+}
+
 watch(
   () => props.messages,
   (newMessages) => {
@@ -235,15 +246,18 @@ watch(
       if (!replies[message.id]) {
         fetchReplies(message.id)
       }
-      if (localLikes[message.id] === undefined) {
-        localLikes[message.id] = message.likes || 0
-      }
-      if (localLikeStatus[message.id] === undefined) {
-        localLikeStatus[message.id] = message.is_liked || false
-      }
+      localLikes[message.id] = message.likes ?? 0
+      localLikeStatus[message.id] = message.is_liked ?? false
     })
   },
   { immediate: true, deep: true }
+)
+
+watch(
+  () => authStore.isLoggedIn.value,
+  (isLoggedIn) => {
+    clearLocalLikeCache()
+  }
 )
 
 const getDisplayedReplies = (messageId) => {
@@ -261,15 +275,9 @@ const getLocalLikeStatus = (messageId) => {
 }
 
 const handleLike = async (messageId) => {
-  if (!isLoggedIn.value) {
-    if (confirm('请先登录后再点赞，是否立即登录？')) {
-      router.push('/login')
-    }
-    return
-  }
-
   if (liking[messageId]) return
 
+  likeErrors[messageId] = ''
   const previousStatus = localLikeStatus[messageId]
   const previousLikes = localLikes[messageId]
 
@@ -284,6 +292,7 @@ const handleLike = async (messageId) => {
   } catch (err) {
     localLikeStatus[messageId] = previousStatus
     localLikes[messageId] = previousLikes
+    likeErrors[messageId] = err.response?.data?.error || '点赞失败，请稍后重试'
     console.error('点赞操作失败:', err)
   } finally {
     liking[messageId] = false
@@ -618,6 +627,12 @@ const formatTime = (dateStr) => {
   font-weight: 500;
   min-width: 20px;
   text-align: left;
+}
+
+.like-error {
+  font-size: 0.8rem;
+  margin-top: 4px;
+  text-align: right;
 }
 
 .reply-form {

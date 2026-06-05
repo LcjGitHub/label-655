@@ -42,6 +42,18 @@ function validateEmail(email) {
   return emailRegex.test(email);
 }
 
+function getClientIp(req) {
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (xForwardedFor) {
+    return xForwardedFor.split(',')[0].trim();
+  }
+  const xRealIp = req.headers['x-real-ip'];
+  if (xRealIp) {
+    return xRealIp.trim();
+  }
+  return req.ip || req.socket.remoteAddress || '';
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const fs = require('fs');
@@ -174,17 +186,22 @@ app.get('/api/messages', (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
     let userId = null;
+    let ipAddress = null;
 
     if (token) {
       try {
         const user = jwt.verify(token, JWT_SECRET);
         userId = user.id;
       } catch (err) {
-        // Token 无效，继续作为未登录用户处理
+        // Token 无效，继续使用 IP 判断
       }
     }
 
-    const result = getMessagesWithLikeStatus(page, pageSize, userId);
+    if (!userId) {
+      ipAddress = getClientIp(req);
+    }
+
+    const result = getMessagesWithLikeStatus(page, pageSize, userId, ipAddress);
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -304,7 +321,7 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
   }
 });
 
-app.post('/api/messages/:messageId/like', authenticateToken, (req, res) => {
+app.post('/api/messages/:messageId/like', (req, res) => {
   const messageId = parseInt(req.params.messageId);
 
   if (isNaN(messageId) || messageId <= 0) {
@@ -317,7 +334,28 @@ app.post('/api/messages/:messageId/like', authenticateToken, (req, res) => {
       return res.status(404).json({ error: '留言不存在' });
     }
 
-    const result = toggleLike(req.user.id, messageId);
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    let userId = null;
+    let ipAddress = null;
+
+    if (token) {
+      try {
+        const user = jwt.verify(token, JWT_SECRET);
+        userId = user.id;
+      } catch (err) {
+        // Token 无效，使用 IP 作为身份标识
+      }
+    }
+
+    if (!userId) {
+      ipAddress = getClientIp(req);
+      if (!ipAddress) {
+        return res.status(400).json({ error: '无法识别访客身份' });
+      }
+    }
+
+    const result = toggleLike(userId, ipAddress, messageId);
     res.json(result);
   } catch (err) {
     console.error(err);
