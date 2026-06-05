@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getMessages, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getRepliesByMessageId, insertReply, getMessageById, getReplyById } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -171,7 +171,20 @@ app.get('/api/messages', (req, res) => {
   const pageSize = parseInt(req.query.pageSize) || 5;
 
   try {
-    const result = getMessages(page, pageSize);
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    let userId = null;
+
+    if (token) {
+      try {
+        const user = jwt.verify(token, JWT_SECRET);
+        userId = user.id;
+      } catch (err) {
+        // Token 无效，继续作为未登录用户处理
+      }
+    }
+
+    const result = getMessagesWithLikeStatus(page, pageSize, userId);
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -288,6 +301,27 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '提交回复失败' });
+  }
+});
+
+app.post('/api/messages/:messageId/like', authenticateToken, (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    const result = toggleLike(req.user.id, messageId);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '操作失败，请稍后重试' });
   }
 });
 

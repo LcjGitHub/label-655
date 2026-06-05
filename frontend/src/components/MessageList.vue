@@ -31,6 +31,22 @@
           <button @click="toggleReplyForm(message.id)" class="action-btn">
             💬 回复
           </button>
+          <button
+            @click="handleLike(message.id)"
+            class="like-btn"
+            :class="{ 'liked': getLocalLikeStatus(message.id) }"
+            :disabled="liking[message.id]"
+          >
+            <span class="heart-icon">
+              <svg v-if="getLocalLikeStatus(message.id)" viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </span>
+            <span class="like-count">{{ getLocalLikes(message.id) }}</span>
+          </button>
         </div>
 
         <div v-if="showReplyForm[message.id]" class="reply-form">
@@ -155,7 +171,7 @@
 <script setup>
 import { ref, reactive, watch, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { getReplies, submitReply as submitReplyApi } from '../utils/api.js'
+import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
 
 const props = defineProps({
@@ -196,6 +212,10 @@ const childReplyErrors = reactive({})
 const replies = reactive({})
 const showAllReplies = reactive({})
 
+const localLikes = reactive({})
+const localLikeStatus = reactive({})
+const liking = reactive({})
+
 const fetchReplies = async (messageId) => {
   try {
     const response = await getReplies(messageId)
@@ -215,6 +235,12 @@ watch(
       if (!replies[message.id]) {
         fetchReplies(message.id)
       }
+      if (localLikes[message.id] === undefined) {
+        localLikes[message.id] = message.likes || 0
+      }
+      if (localLikeStatus[message.id] === undefined) {
+        localLikeStatus[message.id] = message.is_liked || false
+      }
     })
   },
   { immediate: true, deep: true }
@@ -224,6 +250,44 @@ const getDisplayedReplies = (messageId) => {
   if (!replies[messageId]) return []
   if (showAllReplies[messageId]) return replies[messageId].list
   return replies[messageId].list.slice(0, 3)
+}
+
+const getLocalLikes = (messageId) => {
+  return localLikes[messageId] ?? 0
+}
+
+const getLocalLikeStatus = (messageId) => {
+  return localLikeStatus[messageId] ?? false
+}
+
+const handleLike = async (messageId) => {
+  if (!isLoggedIn.value) {
+    if (confirm('请先登录后再点赞，是否立即登录？')) {
+      router.push('/login')
+    }
+    return
+  }
+
+  if (liking[messageId]) return
+
+  const previousStatus = localLikeStatus[messageId]
+  const previousLikes = localLikes[messageId]
+
+  localLikeStatus[messageId] = !previousStatus
+  localLikes[messageId] = previousStatus ? previousLikes - 1 : previousLikes + 1
+  liking[messageId] = true
+
+  try {
+    const response = await toggleLikeApi(messageId)
+    localLikeStatus[messageId] = response.data.liked
+    localLikes[messageId] = response.data.likes
+  } catch (err) {
+    localLikeStatus[messageId] = previousStatus
+    localLikes[messageId] = previousLikes
+    console.error('点赞操作失败:', err)
+  } finally {
+    liking[messageId] = false
+  }
 }
 
 const toggleReplyForm = (messageId) => {
@@ -471,6 +535,9 @@ const formatTime = (dateStr) => {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .action-btn {
@@ -486,6 +553,71 @@ const formatTime = (dateStr) => {
 
 .action-btn:hover {
   background: #f0f0ff;
+}
+
+.like-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 5px 10px;
+  border-radius: 4px;
+  transition: background 0.2s, transform 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #999;
+}
+
+.like-btn:hover:not(:disabled) {
+  background: #fff0f0;
+  transform: scale(1.05);
+}
+
+.like-btn.liked {
+  color: #e74c3c;
+}
+
+.like-btn.liked:hover:not(:disabled) {
+  background: #ffeaea;
+}
+
+.like-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.heart-icon {
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s;
+}
+
+.like-btn:not(.liked):hover .heart-icon {
+  animation: heartBeat 0.6s ease-in-out;
+}
+
+.like-btn.liked .heart-icon {
+  animation: heartPop 0.3s ease-out;
+}
+
+@keyframes heartBeat {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.1); }
+  50% { transform: scale(1); }
+  75% { transform: scale(1.1); }
+}
+
+@keyframes heartPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+.like-count {
+  font-weight: 500;
+  min-width: 20px;
+  text-align: left;
 }
 
 .reply-form {

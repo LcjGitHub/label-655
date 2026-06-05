@@ -79,4 +79,8 @@ export const submitReply = (messageId, content, parentReplyId = null) => {
   return api.post(`/messages/${messageId}/replies`, { content, parentReplyId })
 }
 
+export const toggleLike = (messageId) => {
+  return api.post(`/messages/${messageId}/like`)
+}
+
 export default api
