@@ -230,7 +230,7 @@ app.get('/api/messages/:messageId/replies', (req, res) => {
       return acc;
     }, []);
 
-    res.json({ replies: nestedReplies, total: replies.length });
+    res.json({ replies: nestedReplies, total: nestedReplies.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '获取回复列表失败' });
@@ -277,6 +277,9 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
       }
       if (parentReply.message_id !== messageId) {
         return res.status(400).json({ error: '父回复不属于该留言' });
+      }
+      if (parentReply.parent_reply_id !== null) {
+        return res.status(400).json({ error: '只能回复一级回复，不支持第三级回复' });
       }
     }
 

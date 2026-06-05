@@ -60,7 +60,7 @@
           <p v-if="replyErrors[message.id]" class="error-text">{{ replyErrors[message.id] }}</p>
         </div>
 
-        <div v-if="replies[message.id]" class="replies-section">
+        <div v-if="replies[message.id]" class="replies-section" :id="`replies-${message.id}`">
           <div v-if="replies[message.id].total > 0" class="replies-header">
             <span>{{ replies[message.id].total }} 条回复</span>
           </div>
@@ -153,7 +153,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { getReplies, submitReply as submitReplyApi } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
 
@@ -178,8 +179,9 @@ const props = defineProps({
 
 defineEmits(['retry'])
 
+const router = useRouter()
 const authStore = useAuthStore()
-const isLoggedIn = authStore.isLoggedIn
+const isLoggedIn = computed(() => authStore.isLoggedIn.value)
 
 const showReplyForm = reactive({})
 const replyContent = reactive({})
@@ -225,7 +227,10 @@ const getDisplayedReplies = (messageId) => {
 }
 
 const toggleReplyForm = (messageId) => {
-  if (!isLoggedIn) {
+  if (!isLoggedIn.value) {
+    if (confirm('请先登录后再回复，是否立即登录？')) {
+      router.push('/login')
+    }
     return
   }
   showReplyForm[messageId] = !showReplyForm[messageId]
@@ -241,6 +246,14 @@ const cancelReply = (messageId) => {
   replyErrors[messageId] = ''
 }
 
+const scrollToLatestReply = async (messageId) => {
+  await nextTick()
+  const replySection = document.getElementById(`replies-${messageId}`)
+  if (replySection) {
+    replySection.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
+
 const submitReply = async (messageId) => {
   if (!replyContent[messageId]?.trim()) return
 
@@ -251,7 +264,9 @@ const submitReply = async (messageId) => {
     await submitReplyApi(messageId, replyContent[messageId].trim())
     replyContent[messageId] = ''
     showReplyForm[messageId] = false
-    fetchReplies(messageId)
+    showAllReplies[messageId] = true
+    await fetchReplies(messageId)
+    scrollToLatestReply(messageId)
   } catch (err) {
     replyErrors[messageId] = err.response?.data?.error || '提交失败，请稍后重试'
     console.error(err)
@@ -261,6 +276,12 @@ const submitReply = async (messageId) => {
 }
 
 const toggleChildReplyForm = (messageId, replyId) => {
+  if (!isLoggedIn.value) {
+    if (confirm('请先登录后再回复，是否立即登录？')) {
+      router.push('/login')
+    }
+    return
+  }
   const key = `${messageId}-${replyId}`
   showChildReplyForm[key] = !showChildReplyForm[key]
   if (showChildReplyForm[key]) {
@@ -287,7 +308,9 @@ const submitChildReply = async (messageId, replyId) => {
     await submitReplyApi(messageId, childReplyContent[key].trim(), replyId)
     childReplyContent[key] = ''
     showChildReplyForm[key] = false
-    fetchReplies(messageId)
+    showAllReplies[messageId] = true
+    await fetchReplies(messageId)
+    scrollToLatestReply(messageId)
   } catch (err) {
     childReplyErrors[key] = err.response?.data?.error || '提交失败，请稍后重试'
     console.error(err)
