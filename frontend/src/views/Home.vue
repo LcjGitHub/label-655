@@ -3,8 +3,10 @@
     <MessageForm @submitted="handleMessageSubmitted" />
     <MessageList
       :messages="messages"
+      :total="pagination.total"
       :loading="loading"
       :error="error"
+      @retry="handleRetry"
     />
     <Pagination
       :pagination="pagination"
@@ -55,6 +57,10 @@ const handlePageChange = (page) => {
 
 const handleMessageSubmitted = () => {
   fetchMessages(1)
+}
+
+const handleRetry = () => {
+  fetchMessages(pagination.currentPage)
 }
 
 onMounted(() => {

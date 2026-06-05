@@ -1,6 +1,6 @@
 <template>
   <div class="message-list">
-    <h2>💬 留言列表 <span class="count">({{ messages.length }} 条)</span></h2>
+    <h2>💬 留言列表 <span class="count">({{ total }} 条)</span></h2>
 
     <div v-if="loading" class="loading">
       <div class="spinner"></div>
@@ -36,6 +36,10 @@ defineProps({
   messages: {
     type: Array,
     default: () => []
+  },
+  total: {
+    type: Number,
+    default: 0
   },
   loading: {
     type: Boolean,

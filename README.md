@@ -4,19 +4,21 @@
 
 ## 功能特性
 
-- ✍️ 发表留言（用户名 + 内容）
+- ✍️ 发表留言（用户名 + 内容
 - 💬 留言列表展示（按时间倒序）
 - 📄 分页功能（支持首页、上一页、下一页、末页）
 - 🎨 现代化 UI 设计
 - 📱 响应式布局
 - ⚡ 前后端分离架构
+- 🔒 页码自动校验与修正
+- 📦 生产部署单服务托管
 
 ## 技术栈
 
 ### 后端
-- Node.js
+- Node.js v24+
 - Express 4
-- SQLite3
+- Node.js 内置 `node:sqlite（同步 SQLite 驱动）
 - CORS 跨域支持
 
 ### 前端
@@ -33,26 +35,30 @@ label-655/
 │   ├── package.json
 │   ├── server.js           # Express 服务器入口
 │   ├── database.js         # SQLite 数据库配置
-│   └── messages.db         # SQLite 数据库文件（自动创建）
+│   └── messages.db       # SQLite 数据库文件（自动创建）
 └── frontend/               # 前端应用
-    ├── package.json
-    ├── vite.config.js      # Vite 配置
-    ├── index.html
-    └── src/
-        ├── main.js         # 应用入口
-        ├── App.vue         # 根组件
-        ├── style.css       # 全局样式
-        ├── router/         # 路由配置
-        │   └── index.js
-        ├── utils/          # 工具函数
-        │   └── api.js      # API 封装
-        ├── views/          # 页面组件
-        │   └── Home.vue
-        └── components/     # 可复用组件
-            ├── MessageForm.vue    # 留言表单
-            ├── MessageList.vue    # 留言列表
-            └── Pagination.vue     # 分页组件
+│   ├── package.json
+│   ├── vite.config.js      # Vite 配置
+│   ├── index.html
+│   └── src/
+│       ├── main.js         # 应用入口
+│       ├── App.vue         # 根组件
+│       ├── style.css       # 全局样式
+│       ├── router/         # 路由配置
+│       │   └── index.js
+│       ├── utils/          # 工具函数
+│       │   └── api.js      # API 封装
+│       ├── views/          # 页面组件
+│       │   └── Home.vue
+│       └── components/     # 可复用组件
+│           ├── MessageForm.vue    # 留言表单
+│           ├── MessageList.vue    # 留言列表
+│           └── Pagination.vue     # 分页组件
 ```
+
+## 环境要求
+
+- Node.js >= v24.9.0（使用内置 `node:sqlite` 模块）
 
 ## 快速开始
 
@@ -69,7 +75,9 @@ npm install
 npm start
 ```
 
-后端服务运行在 http://localhost:3001
+后端服务运行在 http://localhost:3000
+
+> **端口占用提示**：若端口 3000 被占用，系统会提示查找并给出解决方法。
 
 ### 3. 安装前端依赖
 
@@ -93,6 +101,11 @@ npm run dev
 ```
 GET /api/messages?page=1&pageSize=5
 ```
+
+**页码校验**：
+- 页码小于 1 时自动修正为 1
+- 页码大于总页数时自动修正为最后一页
+- 每页条数范围：1-100，超出范围自动修正
 
 **响应示例：**
 ```json
@@ -140,17 +153,11 @@ Content-Type: application/json
 }
 ```
 
-### 健康检查
-
-```
-GET /api/health
-```
-
 ## 数据库说明
 
 - 数据库文件：`backend/messages.db`
 - 首次启动时自动创建 `messages` 表
-- 自动插入 12 条示例数据用于测试
+- 时间统一使用 ISO 8601 标准格式
 
 **messages 表结构：**
 
@@ -159,24 +166,31 @@ GET /api/health
 | id | INTEGER | 主键，自增 |
 | username | TEXT | 用户名 |
 | content | TEXT | 留言内容 |
-| created_at | DATETIME | 创建时间，默认当前时间 |
+| created_at | DATETIME | 创建时间，ISO 8601 格式 |
 
 ## 开发说明
 
 ### 前端代理配置
 
-前端开发服务器已配置代理，`/api` 请求会自动转发到 `http://localhost:3001`，无需手动处理跨域问题。
+前端开发服务器已配置代理，`/api` 请求会自动转发到 `http://localhost:3000`，无需手动处理跨域问题。
 
 ### 生产部署
 
+后端自动托管前端构建产物，部署步骤：
+
 ```bash
-# 构建前端
+# 1. 构建前端
 cd frontend
 npm run build
 
-# 将 dist 目录部署到静态服务器
-# 后端使用 pm2 等进程管理器运行
+# 2. 启动后端服务
+cd ../backend
+npm start
 ```
+
+部署完成后，访问 http://localhost:3000 即可访问完整应用。
+
+后端会自动检测前端 `frontend/dist` 目录并托管静态资源。
 
 ## 许可证
 

@@ -1,13 +1,21 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { initDatabase, getMessages, insertMessage } = require('./database');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+const distPath = path.join(__dirname, '..', 'frontend', 'dist');
+const fs = require('fs');
+if (fs.existsSync(distPath)) {
+  console.log('检测到前端构建产物，启用静态文件托管');
+  app.use(express.static(distPath));
+}
 
 app.get('/api/messages', (req, res) => {
   const page = parseInt(req.query.page) || 1;
@@ -53,19 +61,40 @@ app.post('/api/messages', (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-initDatabase().then(() => {
-  app.listen(PORT, () => {
-    console.log(`服务器运行在 http://localhost:${PORT}`);
-  console.log(`API 地址: http://localhost:${PORT}/api/messages`);
-  console.log(`健康检查: http://localhost:${PORT}/api/health`);
+if (fs.existsSync(distPath)) {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
   });
-}).catch(err => {
+}
+
+try {
+  initDatabase();
+
+  const server = app.listen(PORT, () => {
+    console.log(`服务器运行在 http://localhost:${PORT}`);
+    console.log(`API 地址: http://localhost:${PORT}/api/messages`);
+    if (fs.existsSync(distPath)) {
+      console.log(`前端页面: http://localhost:${PORT}`);
+    }
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`❌ 端口 ${PORT} 已被占用，请关闭占用该端口的程序或修改 PORT 环境变量`);
+      console.error('提示：在 Windows 上可使用以下命令查找占用进程：');
+      console.error(`  netstat -ano | findstr :${PORT}`);
+      console.error('  taskkill /F /PID <进程ID>');
+    } else {
+      console.error('服务器启动失败:', err.message);
+    }
+    process.exit(1);
+  });
+} catch (err) {
   console.error('数据库初始化失败:', err);
   process.exit(1);
-});
+}
 
 module.exports = app;
