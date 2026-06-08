@@ -283,6 +283,22 @@ app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
       return res.status(404).json({ error: '留言不存在' });
     }
 
+    if (message.is_deleted === 1) {
+      return res.status(403).json({ error: '该留言已被删除，无法编辑' });
+    }
+
+    if (message.status === 'pending') {
+      return res.status(403).json({ error: '留言正在审核中，暂无法编辑' });
+    }
+
+    if (message.status === 'rejected') {
+      return res.status(403).json({ error: '留言未通过审核，无法编辑' });
+    }
+
+    if (message.status !== 'approved') {
+      return res.status(403).json({ error: '该留言状态不允许编辑' });
+    }
+
     if (message.username !== req.user.username) {
       return res.status(403).json({ error: '只有留言的发布者才能编辑此留言' });
     }

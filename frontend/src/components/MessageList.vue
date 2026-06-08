@@ -21,24 +21,31 @@
         <div class="message-header">
           <div class="avatar">{{ getAvatar(message.username) }}</div>
           <div class="user-info">
-            <span class="username">{{ message.username }}</span>
+            <div class="user-name-row">
+              <span class="username">{{ message.username }}</span>
+              <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
+            </div>
             <span class="time">{{ formatTime(message.created_at) }}</span>
-            <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
           </div>
           <button
-            v-if="canEdit(message)"
+            v-if="canEdit(message) && isWithinEditTime(message)"
             @click="openEditDialog(message)"
             class="edit-btn"
-            :class="{ disabled: !isWithinEditTime(message) }"
-            :disabled="!isWithinEditTime(message)"
             :title="getEditButtonTitle(message)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-            <span v-if="isWithinEditTime(message)" class="edit-countdown">{{ getCountdownText(message.id) }}</span>
+            <span class="edit-countdown">{{ getCountdownText(message.id) }}</span>
           </button>
+          <span
+            v-else-if="canEdit(message) && !isWithinEditTime(message)"
+            class="edit-expired"
+            title="编辑时间已过期（发布后5分钟内可编辑）"
+          >
+            已超时
+          </span>
         </div>
         <div class="message-content">{{ message.content }}</div>
 
@@ -347,6 +354,8 @@ const isWithinEditTime = (message) => {
 
 const canEdit = (message) => {
   if (!isLoggedIn.value || !currentUser.value) return false
+  if (message.is_deleted === 1) return false
+  if (message.status !== 'approved') return false
   return message.username === currentUser.value.username
 }
 
@@ -365,7 +374,6 @@ const openEditDialog = (message) => {
 }
 
 const closeEditDialog = () => {
-  if (editing.value) return
   editDialogVisible.value = false
   editingMessageId.value = null
   editContent.value = ''
@@ -380,18 +388,18 @@ const saveEdit = async () => {
 
   try {
     await updateMessageApi(editingMessageId.value, editContent.value.trim())
+    editing.value = false
     closeEditDialog()
     emit('message-updated')
   } catch (err) {
     editError.value = err.response?.data?.error || '保存失败，请稍后重试'
     console.error('更新留言失败:', err)
+    editing.value = false
     if (err.response?.status === 403) {
       setTimeout(() => {
         closeEditDialog()
       }, 2000)
     }
-  } finally {
-    editing.value = false
   }
 }
 
@@ -697,6 +705,12 @@ const formatTime = (dateStr) => {
   flex: 1;
 }
 
+.user-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
 .username {
   font-weight: 600;
   color: #333;
@@ -710,9 +724,8 @@ const formatTime = (dateStr) => {
 }
 
 .edited-tag {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #999;
-  margin-left: 5px;
 }
 
 .edit-btn {
@@ -729,21 +742,22 @@ const formatTime = (dateStr) => {
   transition: all 0.2s;
 }
 
-.edit-btn:hover:not(:disabled) {
+.edit-btn:hover {
   background: #f0f0ff;
   border-color: #667eea;
-}
-
-.edit-btn:disabled,
-.edit-btn.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  color: #999;
 }
 
 .edit-countdown {
   font-size: 0.75rem;
   font-weight: 500;
+}
+
+.edit-expired {
+  font-size: 0.75rem;
+  color: #bbb;
+  padding: 5px 10px;
+  border: 1px dashed #e0e0e0;
+  border-radius: 6px;
 }
 
 .message-content {
