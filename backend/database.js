@@ -34,6 +34,7 @@ function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
       username TEXT NOT NULL,
+      avatar TEXT,
       content TEXT NOT NULL,
       likes INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -112,6 +113,12 @@ function migrateDatabase() {
     if (!hasUpdatedAtColumn) {
       db.exec('ALTER TABLE messages ADD COLUMN updated_at DATETIME');
       console.log('已迁移 messages 表，添加 updated_at 字段');
+    }
+
+    const hasAvatarColumn = msgColumns.some(col => col.name === 'avatar');
+    if (!hasAvatarColumn) {
+      db.exec('ALTER TABLE messages ADD COLUMN avatar TEXT');
+      console.log('已迁移 messages 表，添加 avatar 字段');
     }
 
     const likesColumns = db.prepare("PRAGMA table_info(likes)").all();
@@ -319,11 +326,11 @@ function batchSoftDeleteMessages(messageIds) {
   return result.changes;
 }
 
-function insertMessage(userId, username, content) {
+function insertMessage(userId, username, content, avatar = null) {
   const createdAt = new Date().toISOString();
 
-  const stmt = db.prepare('INSERT INTO messages (user_id, username, content, created_at, status) VALUES (?, ?, ?, ?, ?)');
-  const result = stmt.run(userId, username, content, createdAt, 'pending');
+  const stmt = db.prepare('INSERT INTO messages (user_id, username, avatar, content, created_at, status) VALUES (?, ?, ?, ?, ?, ?)');
+  const result = stmt.run(userId, username, avatar, content, createdAt, 'pending');
 
   const getStmt = db.prepare('SELECT * FROM messages WHERE id = ?');
   const message = getStmt.get(result.lastInsertRowid);

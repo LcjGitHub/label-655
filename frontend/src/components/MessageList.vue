@@ -19,7 +19,10 @@
     <div v-else class="messages">
       <div v-for="message in messages" :key="message.id" class="message-card">
         <div class="message-header">
-          <div class="avatar">{{ getAvatar(message.username) }}</div>
+            <div class="avatar">
+              <img v-if="message.avatar" :src="message.avatar" :alt="message.username" class="avatar-img" />
+              <span v-else>{{ getAvatar(message.username) }}</span>
+            </div>
           <div class="user-info">
             <div class="user-name-row">
               <span class="username">{{ message.username }}</span>
@@ -113,7 +116,10 @@
               class="reply-item"
             >
               <div class="reply-header">
-                <span class="reply-avatar">{{ getAvatar(reply.username) }}</span>
+                <span class="reply-avatar">
+                  <img v-if="reply.avatar" :src="reply.avatar" :alt="reply.username" class="reply-avatar-img" />
+                  <span v-else>{{ getAvatar(reply.username) }}</span>
+                </span>
                 <span class="reply-username">{{ reply.username }}</span>
                 <span class="reply-time">{{ formatTime(reply.created_at) }}</span>
                 <button
@@ -160,7 +166,10 @@
                   class="child-reply-item"
                 >
                   <div class="child-reply-header">
-                    <span class="reply-avatar small">{{ getAvatar(childReply.username) }}</span>
+                    <span class="reply-avatar small">
+                      <img v-if="childReply.avatar" :src="childReply.avatar" :alt="childReply.username" class="reply-avatar-img" />
+                      <span v-else>{{ getAvatar(childReply.username) }}</span>
+                    </span>
                     <span class="reply-username">{{ childReply.username }}</span>
                     <span class="reply-to">
                       回复@{{ childReply.parent_username }}
@@ -697,6 +706,15 @@ const formatTime = (dateStr) => {
   font-weight: bold;
   margin-right: 12px;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
 }
 
 .user-info {
@@ -1000,6 +1018,15 @@ const formatTime = (dateStr) => {
   font-size: 0.85rem;
   font-weight: bold;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.reply-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
 }
 
 .reply-avatar.small {

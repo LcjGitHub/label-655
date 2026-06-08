@@ -89,8 +89,16 @@ export const getMessages = (page = 1, pageSize = 5) => {
   })
 }
 
-export const submitMessage = (content) => {
-  return api.post('/messages', { content })
+export const submitMessage = (content, avatar = null) => {
+  return api.post('/messages', { content, avatar })
+}
+
+export const uploadAvatar = (formData) => {
+  return api.post('/upload/avatar', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
 }
 
 export const getReplies = (messageId) => {

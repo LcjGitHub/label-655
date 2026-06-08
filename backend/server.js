@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const fs = require('fs');
 const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -76,12 +78,44 @@ function getClientIp(req) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const fs = require('fs');
 const distPath = path.join(__dirname, '..', 'frontend', 'dist');
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 10);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `avatar_${timestamp}_${randomStr}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 2 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('只允许上传 jpg、png、gif 格式的图片'));
+    }
+  }
+});
 
 app.post('/api/auth/register', (req, res) => {
   const { username, email, password } = req.body;
@@ -229,8 +263,24 @@ app.get('/api/messages', (req, res) => {
   }
 });
 
+app.post('/api/upload/avatar', authenticateToken, (req, res) => {
+  upload.single('avatar')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: '图片大小不能超过 2MB' });
+      }
+      return res.status(400).json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: '请选择要上传的图片' });
+    }
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: avatarUrl });
+  });
+});
+
 app.post('/api/messages', authenticateToken, (req, res) => {
-  const { content } = req.body;
+  const { content, avatar } = req.body;
 
   if (!content) {
     return res.status(400).json({ error: '留言内容不能为空' });
@@ -247,7 +297,7 @@ app.post('/api/messages', authenticateToken, (req, res) => {
   }
 
   try {
-    const message = insertMessage(req.user.id, req.user.username, trimmedContent);
+    const message = insertMessage(req.user.id, req.user.username, trimmedContent, avatar || null);
     res.status(201).json({ message });
   } catch (err) {
     console.error(err);
