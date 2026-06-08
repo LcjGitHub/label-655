@@ -594,9 +594,21 @@ function getTotalMessageCount() {
   return stmt.get().count;
 }
 
+function getLocalDateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getLocalStartOfDayISO(d) {
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  return local.toISOString();
+}
+
 function getTodayMessageCount() {
   const today = new Date();
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const startOfDay = getLocalStartOfDayISO(today);
   const stmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved' AND created_at >= ?");
   return stmt.get(startOfDay).count;
 }
@@ -609,13 +621,15 @@ function getLast7DaysTrend() {
   for (let i = 6; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = getLocalDateKey(date);
     const nextDate = new Date(date);
     nextDate.setDate(nextDate.getDate() + 1);
-    const nextDateStr = nextDate.toISOString().split('T')[0];
+
+    const startISO = getLocalStartOfDayISO(date);
+    const endISO = getLocalStartOfDayISO(nextDate);
 
     const stmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved' AND created_at >= ? AND created_at < ?");
-    const { count } = stmt.get(dateStr + 'T00:00:00.000Z', nextDateStr + 'T00:00:00.000Z');
+    const { count } = stmt.get(startISO, endISO);
     result.push({
       date: dateStr,
       label: `${date.getMonth() + 1}/${date.getDate()}`,
@@ -640,14 +654,15 @@ function getTopActiveUsers(limit = 5) {
 function getHourlyDistribution() {
   const result = new Array(24).fill(0);
   const stmt = db.prepare(`
-    SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
+    SELECT created_at
     FROM messages
     WHERE is_deleted = 0 AND status = 'approved'
-    GROUP BY strftime('%H', created_at)
   `);
   const rows = stmt.all();
   rows.forEach(row => {
-    result[row.hour] = row.count;
+    const d = new Date(row.created_at);
+    const localHour = d.getHours();
+    result[localHour] += 1;
   });
   return result;
 }

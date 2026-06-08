@@ -12,12 +12,12 @@
       </button>
     </div>
 
-    <div v-if="error" class="stats-error">
+    <div v-if="error && !stats" class="stats-error">
       {{ error }}
       <button class="retry-btn" @click="fetchStats">重试</button>
     </div>
 
-    <div v-else-if="!loading && stats" class="stats-content">
+    <div v-if="stats" class="stats-content">
       <div class="stats-cards">
         <div class="stat-card stat-card-primary">
           <div class="stat-label">总留言数</div>
@@ -90,7 +90,7 @@
       </div>
     </div>
 
-    <div v-else-if="loading" class="stats-loading">
+    <div v-if="!stats && loading" class="stats-loading">
       加载中...
     </div>
   </div>
