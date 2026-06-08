@@ -118,7 +118,10 @@
               </td>
               <td class="col-content">
                 <div class="content-text" :title="stripHtml(msg.content)">{{ stripHtml(msg.content) }}</div>
-                <div v-if="msg.is_deleted" class="deleted-badge">已删除</div>
+                <div class="content-badges">
+                  <span v-if="msg.is_pinned === 1" class="pinned-badge">📌 已置顶</span>
+                  <span v-if="msg.is_deleted" class="deleted-badge">已删除</span>
+                </div>
               </td>
               <td class="col-status">
                 <span class="status-badge" :class="msg.is_deleted ? 'deleted' : msg.status">
@@ -128,6 +131,24 @@
               <td class="col-time">{{ formatTime(msg.created_at) }}</td>
               <td class="col-actions">
                 <div class="action-buttons">
+                  <button
+                    v-if="!msg.is_deleted && msg.is_pinned !== 1"
+                    class="row-btn pin"
+                    @click="handlePin(msg.id)"
+                    :disabled="loading"
+                    title="置顶"
+                  >
+                    📌
+                  </button>
+                  <button
+                    v-if="!msg.is_deleted && msg.is_pinned === 1"
+                    class="row-btn unpin"
+                    @click="handleUnpin(msg.id)"
+                    :disabled="loading"
+                    title="取消置顶"
+                  >
+                    📍
+                  </button>
                   <button
                     class="row-btn approve"
                     @click="handleReview(msg.id, 'approved')"
@@ -195,7 +216,9 @@ import {
   reviewMessage,
   deleteMessage,
   batchReviewMessages,
-  batchDeleteMessages
+  batchDeleteMessages,
+  pinMessage,
+  unpinMessage
 } from '../utils/api.js'
 import { useAdminStore } from '../store/admin.js'
 import { stripHtml } from '../utils/sanitize.js'
@@ -395,6 +418,30 @@ const handleDelete = async (id) => {
     fetchStats()
   } catch (err) {
     alert(err.response?.data?.error || '删除失败')
+  }
+}
+
+const handlePin = async (id) => {
+  if (!confirm('确定要将这条留言置顶吗？')) return
+
+  try {
+    await pinMessage(id)
+    alert('已置顶')
+    fetchMessages(pagination.currentPage)
+  } catch (err) {
+    alert(err.response?.data?.error || '置顶失败')
+  }
+}
+
+const handleUnpin = async (id) => {
+  if (!confirm('确定要取消这条留言的置顶吗？')) return
+
+  try {
+    await unpinMessage(id)
+    alert('已取消置顶')
+    fetchMessages(pagination.currentPage)
+  } catch (err) {
+    alert(err.response?.data?.error || '取消置顶失败')
   }
 }
 
@@ -863,6 +910,24 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.content-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.pinned-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(238, 90, 36, 0.3);
+}
+
 .col-status {
   width: 100px;
 }
@@ -903,7 +968,7 @@ onUnmounted(() => {
 }
 
 .col-actions {
-  width: 120px;
+  width: 180px;
 }
 
 .action-buttons {
@@ -966,6 +1031,26 @@ onUnmounted(() => {
 
 .row-btn.delete:hover:not(:disabled) {
   background: #e67e22;
+  color: white;
+}
+
+.row-btn.pin {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.row-btn.pin:hover:not(:disabled) {
+  background: #f39c12;
+  color: white;
+}
+
+.row-btn.unpin {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.row-btn.unpin:hover:not(:disabled) {
+  background: #17a2b8;
   color: white;
 }
 

@@ -39,6 +39,8 @@ function createTables() {
       likes INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
       is_deleted INTEGER NOT NULL DEFAULT 0,
+      is_pinned INTEGER NOT NULL DEFAULT 0,
+      pinned_at DATETIME,
       created_at DATETIME NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users (id)
     );
@@ -164,6 +166,18 @@ function migrateDatabase() {
       db.exec('ALTER TABLE replies ADD COLUMN avatar TEXT');
       console.log('已迁移 replies 表，添加 avatar 字段');
     }
+
+    const hasIsPinnedColumn = msgColumns.some(col => col.name === 'is_pinned');
+    if (!hasIsPinnedColumn) {
+      db.exec('ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0');
+      console.log('已迁移 messages 表，添加 is_pinned 字段');
+    }
+
+    const hasPinnedAtColumn = msgColumns.some(col => col.name === 'pinned_at');
+    if (!hasPinnedAtColumn) {
+      db.exec('ALTER TABLE messages ADD COLUMN pinned_at DATETIME');
+      console.log('已迁移 messages 表，添加 pinned_at 字段');
+    }
   } catch (err) {
     console.error('数据库迁移失败:', err);
   }
@@ -223,7 +237,7 @@ function getMessages(page, pageSize) {
   }
 
   const offset = (page - 1) * pageSize;
-  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY created_at DESC LIMIT ? OFFSET ?");
+  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY is_pinned DESC, pinned_at DESC, created_at DESC LIMIT ? OFFSET ?");
   const messages = stmt.all(pageSize, offset);
 
   return {
@@ -270,7 +284,7 @@ function getAllMessagesForAdmin(page, pageSize, status = null) {
   }
 
   const offset = (page - 1) * pageSize;
-  const stmt = db.prepare(`SELECT * FROM messages ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`);
+  const stmt = db.prepare(`SELECT * FROM messages ${whereSql} ORDER BY is_pinned DESC, pinned_at DESC, created_at DESC LIMIT ? OFFSET ?`);
   const messages = stmt.all(...params, pageSize, offset);
 
   return {
@@ -342,6 +356,25 @@ function batchSoftDeleteMessages(messageIds) {
   const stmt = db.prepare(`UPDATE messages SET is_deleted = 1 WHERE id IN (${placeholders})`);
   const result = stmt.run(...messageIds);
   return result.changes;
+}
+
+function pinMessage(messageId) {
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message) {
+    throw new Error('留言不存在');
+  }
+  const pinnedAt = new Date().toISOString();
+  db.prepare('UPDATE messages SET is_pinned = 1, pinned_at = ? WHERE id = ?').run(pinnedAt, messageId);
+  return db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+}
+
+function unpinMessage(messageId) {
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message) {
+    throw new Error('留言不存在');
+  }
+  db.prepare('UPDATE messages SET is_pinned = 0, pinned_at = NULL WHERE id = ?').run(messageId);
+  return db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
 }
 
 function insertMessage(userId, username, content, avatar = null) {
@@ -426,7 +459,7 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   }
 
   const offset = (page - 1) * pageSize;
-  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY created_at DESC LIMIT ? OFFSET ?");
+  const stmt = db.prepare("SELECT * FROM messages WHERE is_deleted = 0 AND status = 'approved' ORDER BY is_pinned DESC, pinned_at DESC, created_at DESC LIMIT ? OFFSET ?");
   const messages = stmt.all(pageSize, offset);
 
   let likedMessageIds = [];
@@ -694,6 +727,8 @@ module.exports = {
   softDeleteMessage,
   batchReviewMessages,
   batchSoftDeleteMessages,
+  pinMessage,
+  unpinMessage,
   getRepliesByMessageId,
   insertReply,
   getMessageById,

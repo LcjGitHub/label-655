@@ -7,7 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const DOMPurify = require('dompurify');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, pinMessage, unpinMessage, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats } = require('./database');
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
@@ -833,6 +833,44 @@ app.post('/api/admin/messages/batch-delete', authenticateAdmin, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || '批量删除失败' });
+  }
+});
+
+app.put('/api/admin/messages/:id/pin', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.id);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = pinMessage(messageId);
+    res.json({ message: '置顶成功', data: message });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message || '置顶失败' });
+  }
+});
+
+app.put('/api/admin/messages/:id/unpin', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.id);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = unpinMessage(messageId);
+    res.json({ message: '取消置顶成功', data: message });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message || '取消置顶失败' });
   }
 });
 

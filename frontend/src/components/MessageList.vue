@@ -26,6 +26,7 @@
           <div class="user-info">
             <div class="user-name-row">
               <span class="username">{{ message.username }}</span>
+              <span v-if="message.is_pinned === 1" class="pinned-tag">📌 置顶</span>
               <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
             </div>
             <span class="time">{{ formatTime(message.created_at) }}</span>
@@ -769,6 +770,17 @@ const formatTime = (dateStr) => {
   font-weight: 600;
   color: #333;
   font-size: 1rem;
+}
+
+.pinned-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(238, 90, 36, 0.3);
 }
 
 .time {

@@ -165,6 +165,14 @@ export const batchDeleteMessages = (ids) => {
   return api.post('/admin/messages/batch-delete', { ids })
 }
 
+export const pinMessage = (messageId) => {
+  return api.put(`/admin/messages/${messageId}/pin`)
+}
+
+export const unpinMessage = (messageId) => {
+  return api.put(`/admin/messages/${messageId}/unpin`)
+}
+
 export const getNotifications = (page = 1, pageSize = 10, isRead = null) => {
   const params = { page, pageSize }
   if (isRead !== null) params.isRead = isRead
