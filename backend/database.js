@@ -59,6 +59,7 @@ function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       message_id INTEGER NOT NULL,
       username TEXT NOT NULL,
+      avatar TEXT,
       content TEXT NOT NULL,
       created_at DATETIME NOT NULL,
       parent_reply_id INTEGER,
@@ -145,6 +146,13 @@ function migrateDatabase() {
         ALTER TABLE likes_new RENAME TO likes;
       `);
       console.log('已迁移 likes 表，添加 ip_address 字段');
+    }
+
+    const replyColumns = db.prepare("PRAGMA table_info(replies)").all();
+    const hasReplyAvatarColumn = replyColumns.some(col => col.name === 'avatar');
+    if (!hasReplyAvatarColumn) {
+      db.exec('ALTER TABLE replies ADD COLUMN avatar TEXT');
+      console.log('已迁移 replies 表，添加 avatar 字段');
     }
   } catch (err) {
     console.error('数据库迁移失败:', err);
@@ -350,11 +358,11 @@ function getRepliesByMessageId(messageId) {
   return replies;
 }
 
-function insertReply(messageId, username, content, parentReplyId = null) {
+function insertReply(messageId, username, content, parentReplyId = null, avatar = null) {
   const createdAt = new Date().toISOString();
 
-  const stmt = db.prepare('INSERT INTO replies (message_id, username, content, created_at, parent_reply_id) VALUES (?, ?, ?, ?, ?)');
-  const result = stmt.run(messageId, username, content, createdAt, parentReplyId);
+  const stmt = db.prepare('INSERT INTO replies (message_id, username, avatar, content, created_at, parent_reply_id) VALUES (?, ?, ?, ?, ?, ?)');
+  const result = stmt.run(messageId, username, avatar, content, createdAt, parentReplyId);
 
   const getStmt = db.prepare(`
     SELECT r1.*, r2.username as parent_username

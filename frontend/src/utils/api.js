@@ -105,8 +105,8 @@ export const getReplies = (messageId) => {
   return api.get(`/messages/${messageId}/replies`)
 }
 
-export const submitReply = (messageId, content, parentReplyId = null) => {
-  return api.post(`/messages/${messageId}/replies`, { content, parentReplyId })
+export const submitReply = (messageId, content, parentReplyId = null, avatar = null) => {
+  return api.post(`/messages/${messageId}/replies`, { content, parentReplyId, avatar })
 }
 
 export const toggleLike = (messageId) => {

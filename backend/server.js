@@ -102,18 +102,24 @@ const storage = multer.diskStorage({
   }
 });
 
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif'];
+
 const upload = multer({
   storage: storage,
   limits: {
     fileSize: 2 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('只允许上传 jpg、png、gif 格式的图片'));
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error('只允许上传 jpg、png、gif 格式的图片'));
     }
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return cb(new Error('文件扩展名不合法，仅支持 .jpg、.jpeg、.png、.gif'));
+    }
+    cb(null, true);
   }
 });
 
@@ -407,7 +413,7 @@ app.get('/api/messages/:messageId/replies', (req, res) => {
 
 app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
   const messageId = parseInt(req.params.messageId);
-  const { content, parentReplyId } = req.body;
+  const { content, parentReplyId, avatar } = req.body;
 
   if (isNaN(messageId) || messageId <= 0) {
     return res.status(400).json({ error: '无效的留言ID' });
@@ -451,7 +457,7 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
       }
     }
 
-    const reply = insertReply(messageId, req.user.username, trimmedContent, validParentReplyId);
+    const reply = insertReply(messageId, req.user.username, trimmedContent, validParentReplyId, avatar || null);
     res.status(201).json({ reply });
   } catch (err) {
     console.error(err);
@@ -662,11 +668,14 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
       return next();
     }
     res.sendFile(path.join(distPath, 'index.html'));
   });
+} else {
+  console.log('未检测到前端构建产物，仅提供 API 服务');
+  console.log('提示：如需单服务部署，请先在 frontend 目录执行 npm run build，或在 backend 目录执行 npm run serve');
 }
 
 try {
@@ -675,6 +684,8 @@ try {
   const server = app.listen(PORT, () => {
     console.log(`服务器运行在 http://localhost:${PORT}`);
     console.log(`API 地址: http://localhost:${PORT}/api/messages`);
+    console.log(`头像上传地址: http://localhost:${PORT}/api/upload/avatar`);
+    console.log(`头像静态资源: http://localhost:${PORT}/uploads/`);
     if (fs.existsSync(distPath)) {
       console.log(`前端页面: http://localhost:${PORT}`);
     }

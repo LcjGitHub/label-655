@@ -95,12 +95,12 @@
             <div
               class="crop-selection"
               :style="cropSelectionStyle"
-              @mousedown="startCropDrag"
+              @mousedown.prevent="startCropDrag"
             >
-              <div class="crop-handle crop-handle-nw" @mousedown.stop="startResize('nw')"></div>
-              <div class="crop-handle crop-handle-ne" @mousedown.stop="startResize('ne')"></div>
-              <div class="crop-handle crop-handle-sw" @mousedown.stop="startResize('sw')"></div>
-              <div class="crop-handle crop-handle-se" @mousedown.stop="startResize('se')"></div>
+              <div class="crop-handle crop-handle-nw" @mousedown.stop.prevent="startResize('nw', $event)"></div>
+              <div class="crop-handle crop-handle-ne" @mousedown.stop.prevent="startResize('ne', $event)"></div>
+              <div class="crop-handle crop-handle-sw" @mousedown.stop.prevent="startResize('sw', $event)"></div>
+              <div class="crop-handle crop-handle-se" @mousedown.stop.prevent="startResize('se', $event)"></div>
             </div>
           </div>
           <p class="crop-tip">拖动选框调整位置，拖动边角调整大小（保持正方形）</p>
@@ -155,6 +155,7 @@ const cropSelection = ref({
 
 const naturalImageSize = ref({ width: 0, height: 0 })
 const displayImageSize = ref({ width: 0, height: 0 })
+const imageScale = ref(1)
 
 let cropDragMode = null
 let cropDragStart = null
@@ -244,8 +245,7 @@ const onCropImageLoad = () => {
     height: img.naturalHeight
   }
 
-  const wrapperRect = cropWrapper.value.getBoundingClientRect()
-  const maxWidth = wrapperRect.width
+  const maxWidth = 500
   const maxHeight = 400
 
   let displayWidth = naturalImageSize.value.width
@@ -256,6 +256,14 @@ const onCropImageLoad = () => {
   displayHeight = Math.floor(displayHeight * scale)
 
   displayImageSize.value = { width: displayWidth, height: displayHeight }
+  imageScale.value = scale
+
+  img.style.width = `${displayWidth}px`
+  img.style.height = `${displayHeight}px`
+  if (cropWrapper.value) {
+    cropWrapper.value.style.width = `${displayWidth}px`
+    cropWrapper.value.style.height = `${displayHeight}px`
+  }
 
   const minSide = Math.min(displayWidth, displayHeight)
   cropSelection.value = {
@@ -278,14 +286,12 @@ const startCropDrag = (e) => {
   document.addEventListener('mouseup', handleCropMouseUp)
 }
 
-const startResize = (handle) => {
-  return (e) => {
-    cropDragMode = handle
-    cropDragStart = getEventPos(e)
-    cropSelectionStart = { ...cropSelection.value }
-    document.addEventListener('mousemove', handleCropMouseMove)
-    document.addEventListener('mouseup', handleCropMouseUp)
-  }
+const startResize = (handle, e) => {
+  cropDragMode = handle
+  cropDragStart = getEventPos(e)
+  cropSelectionStart = { ...cropSelection.value }
+  document.addEventListener('mousemove', handleCropMouseMove)
+  document.addEventListener('mouseup', handleCropMouseUp)
 }
 
 const handleCropMouseMove = (e) => {
@@ -350,12 +356,11 @@ const confirmCrop = async () => {
     canvas.height = outputSize
 
     const img = cropImage.value
-    const scaleX = naturalImageSize.value.width / displayImageSize.value.width
-    const scaleY = naturalImageSize.value.height / displayImageSize.value.height
+    const scale = 1 / imageScale.value
 
-    const sx = cropSelection.value.x * scaleX
-    const sy = cropSelection.value.y * scaleY
-    const sSize = cropSelection.value.size * Math.min(scaleX, scaleY)
+    const sx = cropSelection.value.x * scale
+    const sy = cropSelection.value.y * scale
+    const sSize = cropSelection.value.size * scale
 
     ctx.drawImage(
       img,
