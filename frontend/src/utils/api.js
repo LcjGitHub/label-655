@@ -101,6 +101,14 @@ export const uploadAvatar = (formData) => {
   })
 }
 
+export const uploadImage = (formData) => {
+  return api.post('/upload/image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
+
 export const getReplies = (messageId) => {
   return api.get(`/messages/${messageId}/replies`)
 }

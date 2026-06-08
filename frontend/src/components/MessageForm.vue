@@ -62,17 +62,27 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label for="content">留言内容</label>
-        <textarea
-          id="content"
-          v-model="form.content"
-          placeholder="分享您的想法..."
-          rows="4"
-          maxlength="500"
-          :disabled="submitting"
-        ></textarea>
-        <span class="char-count">{{ form.content.length }}/500</span>
+      <div class="form-group editor-form-group">
+        <label>留言内容</label>
+        <div class="editor-wrapper" :class="{ 'editor-disabled': submitting }">
+          <Toolbar
+            class="editor-toolbar"
+            :editor="editorRef"
+            :default-config="toolbarConfig"
+            mode="default"
+          />
+          <Editor
+            class="editor-content"
+            v-model="htmlContent"
+            :default-config="editorConfig"
+            mode="default"
+            @onCreated="handleEditorCreated"
+            @onChange="handleEditorChange"
+          />
+        </div>
+        <span class="char-count" :class="{ 'char-count-warning': plainTextLength > 450, 'char-count-error': plainTextLength > 500 }">
+          {{ plainTextLength }}/500
+        </span>
       </div>
 
       <button type="submit" class="submit-btn" :disabled="submitting || !isValid || uploading">
@@ -117,9 +127,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { submitMessage, uploadAvatar } from '../utils/api.js'
+import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
+import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
+import '@wangeditor/editor/dist/css/style.css'
+import { submitMessage, uploadAvatar, uploadImage } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
+import DOMPurify from 'dompurify'
 
 const emit = defineEmits(['submitted'])
 const authStore = useAuthStore()
@@ -127,9 +140,8 @@ const authStore = useAuthStore()
 const isLoggedIn = authStore.isLoggedIn
 const currentUser = authStore.currentUser
 
-const form = ref({
-  content: ''
-})
+const htmlContent = ref('<p><br></p>')
+const editorRef = shallowRef()
 
 const submitting = ref(false)
 const error = ref('')
@@ -161,9 +173,108 @@ let cropDragMode = null
 let cropDragStart = null
 let cropSelectionStart = null
 
-const isValid = computed(() => {
-  return form.value.content.trim() !== ''
+const MAX_CONTENT_LENGTH = 500
+
+const toolbarConfig = {
+  excludeKeys: [
+    'group-video',
+    'insertVideo',
+    'uploadVideo',
+    'fullScreen',
+    'codeBlock',
+    'todo',
+    'divider',
+    'emotion',
+    'blockquote'
+  ]
+}
+
+const compressImage = (file, maxWidth = 800, quality = 0.8) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width)
+          width = maxWidth
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('图片压缩失败'))
+              return
+            }
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            })
+            resolve(compressedFile)
+          },
+          'image/jpeg',
+          quality
+        )
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = e.target.result
+    }
+    reader.onerror = () => reject(new Error('图片读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+const editorConfig = {
+  placeholder: '分享您的想法...',
+  MENU_CONF: {
+    uploadImage: {
+      async customUpload(file, insertFn) {
+        try {
+          if (!file.type.startsWith('image/')) {
+            throw new Error('只能上传图片文件')
+          }
+          if (file.size > 5 * 1024 * 1024) {
+            throw new Error('图片大小不能超过 5MB')
+          }
+          const compressedFile = await compressImage(file)
+          const formData = new FormData()
+          formData.append('image', compressedFile)
+          const response = await uploadImage(formData)
+          insertFn(response.data.url, file.name, response.data.url)
+        } catch (err) {
+          console.error('图片上传失败:', err)
+          alert(err.message || '图片上传失败，请重试')
+        }
+      }
+    }
+  }
+}
+
+const stripHtml = (html) => {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  return tmp.textContent || tmp.innerText || ''
+}
+
+const plainTextLength = computed(() => {
+  return stripHtml(htmlContent.value).length
 })
+
+const isValid = computed(() => {
+  return plainTextLength.value > 0 && plainTextLength.value <= MAX_CONTENT_LENGTH
+})
+
+const handleEditorCreated = (editor) => {
+  editorRef.value = editor
+}
+
+const handleEditorChange = () => {
+}
 
 const cropSelectionStyle = computed(() => ({
   left: `${cropSelection.value.x}px`,
@@ -425,9 +536,10 @@ const handleSubmit = async () => {
   success.value = false
 
   try {
-    await submitMessage(form.value.content, avatarUrl.value || null)
+    const sanitizedHtml = DOMPurify.sanitize(htmlContent.value)
+    await submitMessage(sanitizedHtml, avatarUrl.value || null)
     success.value = true
-    form.value.content = ''
+    htmlContent.value = '<p><br></p>'
     avatarUrl.value = ''
     emit('submitted')
 
@@ -444,6 +556,10 @@ const handleSubmit = async () => {
 
 onUnmounted(() => {
   handleCropMouseUp()
+  const editor = editorRef.value
+  if (editor) {
+    editor.destroy()
+  }
 })
 </script>
 
@@ -649,8 +765,7 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.form-group input,
-.form-group textarea {
+.form-group input {
   width: 100%;
   padding: 12px 15px;
   border: 2px solid #e0e0e0;
@@ -664,15 +779,13 @@ onUnmounted(() => {
   padding-right: 90px;
 }
 
-.form-group input:focus,
-.form-group textarea:focus {
+.form-group input:focus {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.form-group input:disabled,
-.form-group textarea:disabled {
+.form-group input:disabled {
   background: #f0f0f0;
   cursor: not-allowed;
 }
@@ -696,12 +809,57 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.editor-form-group {
+  margin-bottom: 35px;
+}
+
+.editor-wrapper {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  background: white;
+}
+
+.editor-wrapper:focus-within {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.editor-wrapper.editor-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.editor-toolbar {
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.editor-content {
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.editor-content :deep(.w-e-text-container) {
+  background: white;
+}
+
 .char-count {
   position: absolute;
   right: 10px;
   bottom: -22px;
   font-size: 0.8rem;
   color: #999;
+}
+
+.char-count-warning {
+  color: #e67e22;
+}
+
+.char-count-error {
+  color: #e74c3c;
 }
 
 .submit-btn {

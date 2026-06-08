@@ -5,7 +5,18 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const fs = require('fs');
+const { JSDOM } = require('jsdom');
+const DOMPurify = require('dompurify');
 const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage } = require('./database');
+
+const window = new JSDOM('').window;
+const purify = DOMPurify(window);
+
+const stripHtml = (html) => {
+  const tmp = new JSDOM(html).window.document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+};
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -118,6 +129,38 @@ const upload = multer({
     }
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       return cb(new Error('文件扩展名不合法，仅支持 .jpg、.jpeg、.png、.gif'));
+    }
+    cb(null, true);
+  }
+});
+
+const imageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 10);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `image_${timestamp}_${randomStr}${ext}`);
+  }
+});
+
+const uploadContentImage = multer({
+  storage: imageStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error('只允许上传 jpg、png、gif、webp 格式的图片'));
+    }
+    if (!allowedExtensions.includes(ext)) {
+      return cb(new Error('文件扩展名不合法，仅支持 .jpg、.jpeg、.png、.gif、.webp'));
     }
     cb(null, true);
   }
@@ -285,6 +328,22 @@ app.post('/api/upload/avatar', authenticateToken, (req, res) => {
   });
 });
 
+app.post('/api/upload/image', authenticateToken, (req, res) => {
+  uploadContentImage.single('image')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: '图片大小不能超过 5MB' });
+      }
+      return res.status(400).json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: '请选择要上传的图片' });
+    }
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: imageUrl });
+  });
+});
+
 app.post('/api/messages', authenticateToken, (req, res) => {
   const { content, avatar } = req.body;
 
@@ -292,18 +351,19 @@ app.post('/api/messages', authenticateToken, (req, res) => {
     return res.status(400).json({ error: '留言内容不能为空' });
   }
 
-  const trimmedContent = content.trim();
+  const sanitizedContent = purify.sanitize(content);
+  const plainText = stripHtml(sanitizedContent).trim();
 
-  if (trimmedContent.length === 0) {
+  if (plainText.length === 0) {
     return res.status(400).json({ error: '留言内容不能为空' });
   }
 
-  if (trimmedContent.length > 500) {
+  if (plainText.length > 500) {
     return res.status(400).json({ error: '留言内容不能超过500个字符' });
   }
 
   try {
-    const message = insertMessage(req.user.id, req.user.username, trimmedContent, avatar || null);
+    const message = insertMessage(req.user.id, req.user.username, sanitizedContent, avatar || null);
     res.status(201).json({ message });
   } catch (err) {
     console.error(err);
@@ -323,13 +383,14 @@ app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
     return res.status(400).json({ error: '留言内容不能为空' });
   }
 
-  const trimmedContent = content.trim();
+  const sanitizedContent = purify.sanitize(content);
+  const plainText = stripHtml(sanitizedContent).trim();
 
-  if (trimmedContent.length === 0) {
+  if (plainText.length === 0) {
     return res.status(400).json({ error: '留言内容不能为空' });
   }
 
-  if (trimmedContent.length > 500) {
+  if (plainText.length > 500) {
     return res.status(400).json({ error: '留言内容不能超过500个字符' });
   }
 
@@ -368,7 +429,7 @@ app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
       return res.status(403).json({ error: `编辑时间已过期，只能在发布后${EDIT_WINDOW_MINUTES}分钟内编辑留言` });
     }
 
-    const updatedMessage = updateMessage(messageId, trimmedContent);
+    const updatedMessage = updateMessage(messageId, sanitizedContent);
     res.json({ message: updatedMessage });
   } catch (err) {
     console.error(err);
@@ -423,13 +484,14 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
     return res.status(400).json({ error: '回复内容不能为空' });
   }
 
-  const trimmedContent = content.trim();
+  const sanitizedContent = purify.sanitize(content);
+  const plainText = stripHtml(sanitizedContent).trim();
 
-  if (trimmedContent.length === 0) {
+  if (plainText.length === 0) {
     return res.status(400).json({ error: '回复内容不能为空' });
   }
 
-  if (trimmedContent.length > 300) {
+  if (plainText.length > 300) {
     return res.status(400).json({ error: '回复内容不能超过300个字符' });
   }
 
@@ -457,7 +519,7 @@ app.post('/api/messages/:messageId/replies', authenticateToken, (req, res) => {
       }
     }
 
-    const reply = insertReply(messageId, req.user.username, trimmedContent, validParentReplyId, avatar || null);
+    const reply = insertReply(messageId, req.user.username, sanitizedContent, validParentReplyId, avatar || null);
     res.status(201).json({ reply });
   } catch (err) {
     console.error(err);

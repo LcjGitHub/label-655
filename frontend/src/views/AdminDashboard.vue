@@ -113,7 +113,7 @@
                 </div>
               </td>
               <td class="col-content">
-                <div class="content-text" :title="msg.content">{{ msg.content }}</div>
+                <div class="content-text" :title="stripHtml(msg.content)">{{ stripHtml(msg.content) }}</div>
                 <div v-if="msg.is_deleted" class="deleted-badge">已删除</div>
               </td>
               <td class="col-status">
@@ -236,6 +236,12 @@ const isAllSelected = computed(() => {
 
 const getAvatar = (username) => {
   return username ? username.charAt(0).toUpperCase() : '?'
+}
+
+const stripHtml = (html) => {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  return tmp.textContent || tmp.innerText || ''
 }
 
 const getStatusText = (status, isDeleted) => {

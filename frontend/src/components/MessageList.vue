@@ -50,7 +50,7 @@
             已超时
           </span>
         </div>
-        <div class="message-content">{{ message.content }}</div>
+        <div class="message-content rich-text-content" v-html="message.content"></div>
 
         <div class="message-actions">
           <button @click="toggleReplyForm(message.id)" class="action-btn">
@@ -130,7 +130,7 @@
                   回复
                 </button>
               </div>
-              <div class="reply-content">{{ reply.content }}</div>
+              <div class="reply-content rich-text-content" v-html="reply.content"></div>
 
               <div v-if="showChildReplyForm[`${message.id}-${reply.id}`]" class="child-reply-form">
                 <textarea
@@ -176,7 +176,7 @@
                     </span>
                     <span class="reply-time">{{ formatTime(childReply.created_at) }}</span>
                   </div>
-                  <div class="reply-content">{{ childReply.content }}</div>
+                  <div class="reply-content rich-text-content" v-html="childReply.content"></div>
                 </div>
               </div>
             </div>
@@ -374,10 +374,22 @@ const getEditButtonTitle = (message) => {
   return '编辑留言'
 }
 
+const stripHtml = (html) => {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  return tmp.textContent || tmp.innerText || ''
+}
+
+const textToHtml = (text) => {
+  const lines = text.split('\n').filter(line => line.trim().length > 0)
+  if (lines.length === 0) return '<p><br></p>'
+  return lines.map(line => `<p>${line}</p>`).join('')
+}
+
 const openEditDialog = (message) => {
   if (!isWithinEditTime(message)) return
   editingMessageId.value = message.id
-  editContent.value = message.content
+  editContent.value = stripHtml(message.content)
   editError.value = ''
   editDialogVisible.value = true
 }
@@ -396,7 +408,8 @@ const saveEdit = async () => {
   editError.value = ''
 
   try {
-    await updateMessageApi(editingMessageId.value, editContent.value.trim())
+    const htmlContent = textToHtml(editContent.value.trim())
+    await updateMessageApi(editingMessageId.value, htmlContent)
     editing.value = false
     closeEditDialog()
     emit('message-updated')
@@ -1074,6 +1087,142 @@ const formatTime = (dateStr) => {
   font-size: 0.9rem;
   word-wrap: break-word;
   padding-left: 36px;
+}
+
+.rich-text-content :deep(p) {
+  margin: 0 0 10px 0;
+}
+
+.rich-text-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.rich-text-content :deep(strong),
+.rich-text-content :deep(b) {
+  font-weight: 600;
+}
+
+.rich-text-content :deep(em),
+.rich-text-content :deep(i) {
+  font-style: italic;
+}
+
+.rich-text-content :deep(u) {
+  text-decoration: underline;
+}
+
+.rich-text-content :deep(ul),
+.rich-text-content :deep(ol) {
+  margin: 10px 0;
+  padding-left: 25px;
+}
+
+.rich-text-content :deep(ul) {
+  list-style-type: disc;
+}
+
+.rich-text-content :deep(ol) {
+  list-style-type: decimal;
+}
+
+.rich-text-content :deep(li) {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.rich-text-content :deep(a) {
+  color: #667eea;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.rich-text-content :deep(a:hover) {
+  border-bottom-color: #667eea;
+}
+
+.rich-text-content :deep(img) {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 8px;
+  margin: 10px 0;
+  display: block;
+  object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.rich-text-content :deep(h1),
+.rich-text-content :deep(h2),
+.rich-text-content :deep(h3),
+.rich-text-content :deep(h4),
+.rich-text-content :deep(h5),
+.rich-text-content :deep(h6) {
+  font-weight: 600;
+  margin: 15px 0 10px;
+  color: #333;
+}
+
+.rich-text-content :deep(h1) { font-size: 1.5rem; }
+.rich-text-content :deep(h2) { font-size: 1.3rem; }
+.rich-text-content :deep(h3) { font-size: 1.15rem; }
+.rich-text-content :deep(h4) { font-size: 1.05rem; }
+
+.rich-text-content :deep(blockquote) {
+  border-left: 4px solid #667eea;
+  padding-left: 15px;
+  margin: 10px 0;
+  color: #666;
+  background: #f8f9ff;
+  padding: 10px 15px;
+  border-radius: 0 8px 8px 0;
+}
+
+.rich-text-content :deep(code) {
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e74c3c;
+}
+
+.rich-text-content :deep(pre) {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 15px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.rich-text-content :deep(pre code) {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.rich-text-content :deep(hr) {
+  border: none;
+  border-top: 1px solid #e0e0e0;
+  margin: 15px 0;
+}
+
+.rich-text-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.rich-text-content :deep(th),
+.rich-text-content :deep(td) {
+  border: 1px solid #e0e0e0;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.rich-text-content :deep(th) {
+  background: #f8f9fa;
+  font-weight: 600;
 }
 
 .child-reply-form {
