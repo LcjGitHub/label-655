@@ -67,26 +67,26 @@
         <div class="editor-wrapper" :class="{ 'editor-disabled': submitting }">
           <Toolbar
             class="editor-toolbar"
-            :editor="editorRef"
-            :default-config="toolbarConfig"
+            :editor="editor.editorRef"
+            :default-config="editor.toolbarConfig"
             mode="default"
           />
           <Editor
             class="editor-content"
-            v-model="htmlContent"
-            :default-config="editorConfig"
+            v-model="editor.htmlContent"
+            :default-config="editor.editorConfig"
             mode="default"
-            @onCreated="handleEditorCreated"
-            @onChange="handleEditorChange"
+            @onCreated="editor.handleEditorCreated"
+            @onChange="editor.handleEditorChange"
           />
         </div>
-        <span class="char-count" :class="{ 'char-count-warning': plainTextLength > 450, 'char-count-error': plainTextLength > 500 }">
-          {{ plainTextLength }}/500
+        <span class="char-count" :class="charCount.charCountClass">
+          {{ charCount.displayText }}
         </span>
-        <p v-if="imageUploadError" class="image-upload-error">{{ imageUploadError }}</p>
+        <p v-if="editor.error.value" class="image-upload-error">{{ editor.error.value }}</p>
       </div>
 
-      <button type="submit" class="submit-btn" :disabled="submitting || !isValid || uploading">
+      <button type="submit" class="submit-btn" :disabled="submitting || !charCount.isValid.value || uploading">
         {{ submitting ? '提交中...' : '发布留言' }}
       </button>
 
@@ -129,12 +129,14 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import '@wangeditor/editor/dist/css/style.css'
-import { submitMessage, uploadAvatar, uploadImage } from '../utils/api.js'
+import { submitMessage, uploadAvatar } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
-import { sanitizeHtml, stripHtml } from '../utils/sanitize.js'
+import { sanitizeHtml } from '../utils/sanitize.js'
+import { useEditor } from '../composables/useEditor.js'
+import { useCharacterCount } from '../composables/useCharacterCount.js'
 
 const emit = defineEmits(['submitted'])
 const authStore = useAuthStore()
@@ -142,15 +144,23 @@ const authStore = useAuthStore()
 const isLoggedIn = authStore.isLoggedIn
 const currentUser = authStore.currentUser
 
-const htmlContent = ref('<p><br></p>')
-const plainTextLength = ref(0)
-const editorRef = shallowRef()
+const MAX_CONTENT_LENGTH = 500
+
+const editor = useEditor({
+  initialHtml: '<p><br></p>',
+  placeholder: '分享您的想法...',
+  maxLength: MAX_CONTENT_LENGTH
+})
+
+const charCount = useCharacterCount(
+  () => editor.plainTextLength.value,
+  MAX_CONTENT_LENGTH
+)
 
 const submitting = ref(false)
 const error = ref('')
 const success = ref(false)
 const pendingMessage = ref(false)
-const imageUploadError = ref('')
 
 const fileInput = ref(null)
 const avatarUrl = ref('')
@@ -178,104 +188,7 @@ let cropDragMode = null
 let cropDragStart = null
 let cropSelectionStart = null
 
-const MAX_CONTENT_LENGTH = 500
-
-const toolbarConfig = {
-  toolbarKeys: [
-    'bold',
-    'italic',
-    'underline',
-    'bulletedList',
-    'numberedList',
-    'insertLink',
-    'uploadImage'
-  ]
-}
-
-const compressImage = (file, maxWidth = 800, quality = 0.8) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const img = new Image()
-      img.onload = () => {
-        let { width, height } = img
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width)
-          width = maxWidth
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, width, height)
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) {
-              reject(new Error('图片压缩失败'))
-              return
-            }
-            const compressedFile = new File([blob], file.name, {
-              type: 'image/jpeg',
-              lastModified: Date.now()
-            })
-            resolve(compressedFile)
-          },
-          'image/jpeg',
-          quality
-        )
-      }
-      img.onerror = () => reject(new Error('图片加载失败'))
-      img.src = e.target.result
-    }
-    reader.onerror = () => reject(new Error('图片读取失败'))
-    reader.readAsDataURL(file)
-  })
-}
-
-const isValid = computed(() => {
-  return plainTextLength.value > 0 && plainTextLength.value <= MAX_CONTENT_LENGTH
-})
-
-const editorConfig = {
-  placeholder: '分享您的想法...',
-  MENU_CONF: {
-    uploadImage: {
-      async customUpload(file, insertFn) {
-        imageUploadError.value = ''
-        try {
-          if (!file.type.startsWith('image/')) {
-            throw new Error('只能上传图片文件')
-          }
-          if (file.size > 5 * 1024 * 1024) {
-            throw new Error('图片大小不能超过 5MB')
-          }
-          const compressedFile = await compressImage(file)
-          const formData = new FormData()
-          formData.append('image', compressedFile)
-          const response = await uploadImage(formData)
-          insertFn(response.data.url, file.name, response.data.url)
-        } catch (err) {
-          console.error('图片上传失败:', err)
-          imageUploadError.value = err.message || '图片上传失败，请重试'
-        }
-      }
-    }
-  }
-}
-
-const handleEditorCreated = (editor) => {
-  editorRef.value = editor
-  plainTextLength.value = stripHtml(editor.getHtml()).length
-}
-
-const handleEditorChange = (editor) => {
-  const html = editor.getHtml()
-  htmlContent.value = html
-  plainTextLength.value = stripHtml(html).length
-  if (imageUploadError.value) {
-    imageUploadError.value = ''
-  }
-}
+const isValid = computed(() => charCount.isValid.value)
 
 const cropSelectionStyle = computed(() => ({
   left: `${cropSelection.value.x}px`,
@@ -536,10 +449,10 @@ const handleSubmit = async () => {
   error.value = ''
   success.value = false
   pendingMessage.value = false
-  imageUploadError.value = ''
+  editor.error.value = ''
 
   try {
-    const sanitizedHtml = sanitizeHtml(htmlContent.value)
+    const sanitizedHtml = sanitizeHtml(editor.htmlContent.value)
     const response = await submitMessage(sanitizedHtml, avatarUrl.value || null)
     const message = response.data.message
 
@@ -549,11 +462,7 @@ const handleSubmit = async () => {
       success.value = true
     }
 
-    htmlContent.value = '<p><br></p>'
-    plainTextLength.value = 0
-    if (editorRef.value) {
-      editorRef.value.clear()
-    }
+    editor.clearContent()
     avatarUrl.value = ''
     emit('submitted')
 
@@ -571,10 +480,7 @@ const handleSubmit = async () => {
 
 onUnmounted(() => {
   handleCropMouseUp()
-  const editor = editorRef.value
-  if (editor) {
-    editor.destroy()
-  }
+  editor.destroyEditor()
 })
 </script>
 
