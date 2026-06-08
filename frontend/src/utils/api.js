@@ -159,4 +159,26 @@ export const batchDeleteMessages = (ids) => {
   return api.post('/admin/messages/batch-delete', { ids })
 }
 
+export const getNotifications = (page = 1, pageSize = 10, isRead = null) => {
+  const params = { page, pageSize }
+  if (isRead !== null) params.isRead = isRead
+  return api.get('/admin/notifications', { params })
+}
+
+export const getRecentNotifications = () => {
+  return api.get('/admin/notifications/recent')
+}
+
+export const getUnreadNotificationCount = () => {
+  return api.get('/admin/notifications/unread-count')
+}
+
+export const markNotificationAsRead = (notificationId) => {
+  return api.put(`/admin/notifications/${notificationId}/read`)
+}
+
+export const markAllNotificationsAsRead = () => {
+  return api.put('/admin/notifications/read-all')
+}
+
 export default api

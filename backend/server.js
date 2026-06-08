@@ -7,7 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const DOMPurify = require('dompurify');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById } = require('./database');
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
@@ -74,7 +74,7 @@ const purifyConfig = {
   ALLOW_UNKNOWN_PROTOCOLS: false,
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   ADD_URI_SAFE_ATTR: [],
-  KEEP_CONTENT: false,
+  KEEP_CONTENT: true,
   RETURN_TRUSTED_TYPE: false,
   WHOLE_DOCUMENT: false,
   SANITIZE_DOM: true,
@@ -437,6 +437,8 @@ app.post('/api/messages', authenticateToken, (req, res) => {
 
   try {
     const message = insertMessage(req.user.id, req.user.username, sanitizedContent, avatar || null);
+    const summary = plainText.length > 50 ? plainText.substring(0, 50) + '...' : plainText;
+    insertNotification('new_message', `用户 ${req.user.username} 提交了新留言：${summary}`, message.id);
     res.status(201).json({ message });
   } catch (err) {
     console.error(err);
@@ -795,6 +797,72 @@ app.post('/api/admin/messages/batch-delete', authenticateAdmin, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || '批量删除失败' });
+  }
+});
+
+app.get('/api/admin/notifications', authenticateAdmin, (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 10;
+  const isReadParam = req.query.isRead;
+  let isRead = null;
+  if (isReadParam === 'true') isRead = true;
+  if (isReadParam === 'false') isRead = false;
+
+  try {
+    const result = getNotifications(page, pageSize, isRead);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取通知列表失败' });
+  }
+});
+
+app.get('/api/admin/notifications/recent', authenticateAdmin, (req, res) => {
+  try {
+    const result = getNotifications(1, 10, null);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取最近通知失败' });
+  }
+});
+
+app.get('/api/admin/notifications/unread-count', authenticateAdmin, (req, res) => {
+  try {
+    const count = getUnreadNotificationCount();
+    res.json({ unreadCount: count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取未读通知数失败' });
+  }
+});
+
+app.put('/api/admin/notifications/:id/read', authenticateAdmin, (req, res) => {
+  const notificationId = parseInt(req.params.id);
+
+  if (isNaN(notificationId) || notificationId <= 0) {
+    return res.status(400).json({ error: '无效的通知ID' });
+  }
+
+  try {
+    const notification = markNotificationAsRead(notificationId);
+    res.json({ message: '已标记为已读', notification });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '通知不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: '标记已读失败' });
+  }
+});
+
+app.put('/api/admin/notifications/read-all', authenticateAdmin, (req, res) => {
+  try {
+    const count = markAllNotificationsAsRead();
+    res.json({ message: `已将 ${count} 条通知标记为已读`, count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '标记全部已读失败' });
   }
 });
 

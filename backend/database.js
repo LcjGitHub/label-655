@@ -65,6 +65,16 @@ function createTables() {
       parent_reply_id INTEGER,
       FOREIGN KEY (message_id) REFERENCES messages (id),
       FOREIGN KEY (parent_reply_id) REFERENCES replies (id)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL DEFAULT 'new_message',
+      content TEXT NOT NULL,
+      message_id INTEGER,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages (id)
     )
   `);
 
@@ -508,6 +518,77 @@ function toggleLike(userId, ipAddress, messageId) {
   return result;
 }
 
+function insertNotification(type, content, messageId = null) {
+  const createdAt = new Date().toISOString();
+  const stmt = db.prepare('INSERT INTO notifications (type, content, message_id, is_read, created_at) VALUES (?, ?, ?, 0, ?)');
+  const result = stmt.run(type, content, messageId, createdAt);
+
+  const getStmt = db.prepare('SELECT * FROM notifications WHERE id = ?');
+  return getStmt.get(result.lastInsertRowid);
+}
+
+function getNotifications(page = 1, pageSize = 10, isRead = null) {
+  if (pageSize < 1) pageSize = 10;
+  if (pageSize > 200) pageSize = 200;
+
+  let whereClauses = [];
+  let params = [];
+
+  if (isRead !== null) {
+    whereClauses.push('is_read = ?');
+    params.push(isRead ? 1 : 0);
+  }
+
+  const whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  const countStmt = db.prepare(`SELECT COUNT(*) as total FROM notifications ${whereSql}`);
+  const { total } = countStmt.get(...params);
+  const totalPages = Math.ceil(total / pageSize);
+
+  if (page < 1) page = 1;
+  if (totalPages > 0 && page > totalPages) page = totalPages;
+
+  const offset = (page - 1) * pageSize;
+  const stmt = db.prepare(`SELECT * FROM notifications ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`);
+  const notifications = stmt.all(...params, pageSize, offset);
+
+  return {
+    notifications,
+    pagination: {
+      currentPage: page,
+      pageSize: pageSize,
+      total: total,
+      totalPages: totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  };
+}
+
+function getUnreadNotificationCount() {
+  const stmt = db.prepare('SELECT COUNT(*) as count FROM notifications WHERE is_read = 0');
+  return stmt.get().count;
+}
+
+function markNotificationAsRead(notificationId) {
+  const notification = db.prepare('SELECT * FROM notifications WHERE id = ?').get(notificationId);
+  if (!notification) {
+    throw new Error('通知不存在');
+  }
+  db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(notificationId);
+  return db.prepare('SELECT * FROM notifications WHERE id = ?').get(notificationId);
+}
+
+function markAllNotificationsAsRead() {
+  const result = db.prepare('UPDATE notifications SET is_read = 1 WHERE is_read = 0').run();
+  return result.changes;
+}
+
+function getNotificationById(notificationId) {
+  const stmt = db.prepare('SELECT * FROM notifications WHERE id = ?');
+  return stmt.get(notificationId);
+}
+
 module.exports = {
   initDatabase,
   getMessages,
@@ -531,5 +612,11 @@ module.exports = {
   getReplyById,
   getLikeStatus,
   toggleLike,
-  updateMessage
+  updateMessage,
+  insertNotification,
+  getNotifications,
+  getUnreadNotificationCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  getNotificationById
 };

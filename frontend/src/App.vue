@@ -7,6 +7,7 @@
           <p class="subtitle">分享你的想法，与大家交流</p>
         </div>
         <nav class="nav-menu">
+          <NotificationBell />
           <router-link to="/admin/login" class="nav-btn admin-link">
             🛡️ 管理后台
           </router-link>
@@ -30,6 +31,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from './store/auth.js'
 import { useAdminStore } from './store/admin.js'
+import NotificationBell from './components/NotificationBell.vue'
 
 const router = useRouter()
 const route = useRoute()

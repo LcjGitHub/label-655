@@ -6,6 +6,9 @@
         <p class="welcome">欢迎，{{ currentAdmin?.username }}</p>
       </div>
       <div class="header-actions">
+        <div class="bell-wrapper">
+          <NotificationBell />
+        </div>
         <button class="action-btn secondary" @click="goHome">返回首页</button>
         <button class="action-btn logout" @click="handleLogout">退出登录</button>
       </div>
@@ -195,6 +198,7 @@ import {
 } from '../utils/api.js'
 import { useAdminStore } from '../store/admin.js'
 import { stripHtml } from '../utils/sanitize.js'
+import NotificationBell from '../components/NotificationBell.vue'
 
 const router = useRouter()
 const adminStore = useAdminStore()
@@ -429,6 +433,26 @@ onUnmounted(() => {
 .header-actions {
   display: flex;
   gap: 10px;
+  align-items: center;
+}
+
+.bell-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.bell-wrapper :deep(.bell-btn) {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.bell-wrapper :deep(.bell-btn:hover) {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.bell-wrapper :deep(.bell-btn.active) {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .action-btn {

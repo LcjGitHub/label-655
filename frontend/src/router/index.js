@@ -4,6 +4,7 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import AdminLogin from '../views/AdminLogin.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
+import NotificationCenter from '../views/NotificationCenter.vue'
 import { useAdminStore } from '../store/admin.js'
 
 const routes = [
@@ -31,6 +32,12 @@ const routes = [
     path: '/admin/dashboard',
     name: 'AdminDashboard',
     component: AdminDashboard,
+    meta: { requiresAdmin: true }
+  },
+  {
+    path: '/admin/notifications',
+    name: 'NotificationCenter',
+    component: NotificationCenter,
     meta: { requiresAdmin: true }
   }
 ]
