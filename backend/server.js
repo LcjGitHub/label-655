@@ -7,7 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const DOMPurify = require('dompurify');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, pinMessage, unpinMessage, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats, dailyCheckIn, addPostMessagePoints, getPointLogs, getLevelConfig, POINT_RULES, getMessagesByIds } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, pinMessage, unpinMessage, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats, dailyCheckIn, addPostMessagePoints, getPointLogs, getLevelConfig, POINT_RULES, getMessagesByIds, getEditHistoryByMessageId } = require('./database');
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
@@ -610,7 +610,7 @@ app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
       return res.status(403).json({ error: `编辑时间已过期，只能在发布后${EDIT_WINDOW_MINUTES}分钟内编辑留言` });
     }
 
-    const updatedMessage = updateMessage(messageId, sanitizedContent);
+    const updatedMessage = updateMessage(messageId, sanitizedContent, req.user.id, req.user.username);
     res.json({ message: updatedMessage });
   } catch (err) {
     console.error(err);
@@ -618,6 +618,31 @@ app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
       return res.status(404).json({ error: err.message });
     }
     res.status(500).json({ error: '更新留言失败，请稍后重试' });
+  }
+});
+
+app.get('/api/messages/:messageId/edit-history', authenticateToken, (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    if (message.username !== req.user.username) {
+      return res.status(403).json({ error: '只能查看自己留言的编辑历史' });
+    }
+
+    const history = getEditHistoryByMessageId(messageId);
+    res.json({ history });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取编辑历史失败' });
   }
 });
 
@@ -1022,6 +1047,27 @@ app.put('/api/admin/notifications/read-all', authenticateAdmin, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '标记全部已读失败' });
+  }
+});
+
+app.get('/api/admin/messages/:messageId/edit-history', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    const history = getEditHistoryByMessageId(messageId);
+    res.json({ history });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取编辑历史失败' });
   }
 });
 

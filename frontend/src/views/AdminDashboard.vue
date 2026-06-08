@@ -121,6 +121,7 @@
                 <div class="content-badges">
                   <span v-if="msg.is_pinned === 1" class="pinned-badge">📌 已置顶</span>
                   <span v-if="msg.is_deleted" class="deleted-badge">已删除</span>
+                  <span v-if="msg.updated_at" class="edited-badge">✏️ 已编辑</span>
                 </div>
               </td>
               <td class="col-status">
@@ -176,6 +177,15 @@
                   >
                     🗑️
                   </button>
+                  <button
+                    v-if="msg.updated_at"
+                    class="row-btn history"
+                    @click="openHistoryDialog(msg.id)"
+                    :disabled="loading"
+                    title="查看编辑历史"
+                  >
+                    📜
+                  </button>
                 </div>
               </td>
             </tr>
@@ -204,6 +214,14 @@
         </button>
       </div>
     </div>
+
+    <EditHistoryDialog
+      v-model:visible="historyDialogVisible"
+      :message-id="historyMessageId"
+      :fetch-history="getAdminMessageEditHistory"
+      :show-user="true"
+      @close="historyMessageId = null"
+    />
   </div>
 </template>
 
@@ -218,11 +236,13 @@ import {
   batchReviewMessages,
   batchDeleteMessages,
   pinMessage,
-  unpinMessage
+  unpinMessage,
+  getAdminMessageEditHistory
 } from '../utils/api.js'
 import { useAdminStore } from '../store/admin.js'
 import { stripHtml } from '../utils/sanitize.js'
 import NotificationBell from '../components/NotificationBell.vue'
+import EditHistoryDialog from '../components/EditHistoryDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -236,6 +256,9 @@ const selectedIds = ref([])
 const currentStatus = ref(null)
 const highlightedMessageId = ref(null)
 let highlightTimer = null
+
+const historyDialogVisible = ref(false)
+const historyMessageId = ref(null)
 
 const pagination = reactive({
   currentPage: 1,
@@ -480,6 +503,11 @@ const handleLogout = () => {
 
 const goHome = () => {
   router.push('/')
+}
+
+const openHistoryDialog = (messageId) => {
+  historyMessageId.value = messageId
+  historyDialogVisible.value = true
 }
 
 onMounted(() => {
@@ -928,6 +956,17 @@ onUnmounted(() => {
   box-shadow: 0 2px 6px rgba(238, 90, 36, 0.3);
 }
 
+.edited-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(108, 92, 231, 0.3);
+}
+
 .col-status {
   width: 100px;
 }
@@ -1051,6 +1090,16 @@ onUnmounted(() => {
 
 .row-btn.unpin:hover:not(:disabled) {
   background: #17a2b8;
+  color: white;
+}
+
+.row-btn.history {
+  background: #e8daef;
+  color: #6c3483;
+}
+
+.row-btn.history:hover:not(:disabled) {
+  background: #8e44ad;
   color: white;
 }
 

@@ -123,6 +123,18 @@ function createTables() {
       is_read INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL,
       FOREIGN KEY (message_id) REFERENCES messages (id)
+    );
+
+    CREATE TABLE IF NOT EXISTS message_edit_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      user_id INTEGER,
+      username TEXT NOT NULL,
+      old_content TEXT NOT NULL,
+      new_content TEXT NOT NULL,
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages (id),
+      FOREIGN KEY (user_id) REFERENCES users (id)
     )
   `);
 
@@ -707,10 +719,54 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   };
 }
 
-function updateMessage(messageId, content) {
+function insertMessageEditHistory(messageId, userId, username, oldContent, newContent) {
+  const createdAt = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO message_edit_history (message_id, user_id, username, old_content, new_content, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(messageId, userId, username, oldContent, newContent, createdAt);
+
+  const countStmt = db.prepare('SELECT COUNT(*) as count FROM message_edit_history WHERE message_id = ?');
+  const { count } = countStmt.get(messageId);
+  const MAX_HISTORY = 5;
+  if (count > MAX_HISTORY) {
+    const deleteStmt = db.prepare(`
+      DELETE FROM message_edit_history
+      WHERE message_id = ? AND id NOT IN (
+        SELECT id FROM message_edit_history
+        WHERE message_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      )
+    `);
+    deleteStmt.run(messageId, messageId, MAX_HISTORY);
+  }
+}
+
+function getEditHistoryByMessageId(messageId) {
+  const stmt = db.prepare(`
+    SELECT * FROM message_edit_history
+    WHERE message_id = ?
+    ORDER BY created_at DESC
+    LIMIT 5
+  `);
+  return stmt.all(messageId);
+}
+
+function updateMessage(messageId, content, userId = null, username = null) {
   const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
   if (!message) {
     throw new Error('留言不存在');
+  }
+  if (message.content !== content) {
+    insertMessageEditHistory(
+      messageId,
+      userId || message.user_id,
+      username || message.username,
+      message.content,
+      content
+    );
   }
   const updatedAt = new Date().toISOString();
   db.prepare('UPDATE messages SET content = ?, updated_at = ? WHERE id = ?').run(content, updatedAt, messageId);
@@ -994,5 +1050,7 @@ module.exports = {
   getLevelByPoints,
   getLevelConfig,
   POINT_RULES,
-  LEVELS
+  LEVELS,
+  insertMessageEditHistory,
+  getEditHistoryByMessageId
 };

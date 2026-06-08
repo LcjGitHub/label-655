@@ -139,6 +139,14 @@ export const updateMessage = (messageId, content) => {
   return api.put(`/messages/${messageId}`, { content })
 }
 
+export const getMessageEditHistory = (messageId) => {
+  return api.get(`/messages/${messageId}/edit-history`)
+}
+
+export const getAdminMessageEditHistory = (messageId) => {
+  return api.get(`/admin/messages/${messageId}/edit-history`)
+}
+
 export const getStats = (forceRefresh = false) => {
   const params = {}
   if (forceRefresh) params.refresh = 'true'

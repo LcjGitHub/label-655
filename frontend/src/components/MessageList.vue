@@ -34,6 +34,14 @@
               />
               <span v-if="message.is_pinned === 1" class="pinned-tag">📌 置顶</span>
               <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
+              <button
+                v-if="message.updated_at && canViewHistory(message)"
+                @click="openHistoryDialog(message)"
+                class="history-btn"
+                title="查看编辑历史"
+              >
+                📜 历史
+              </button>
             </div>
             <span class="time">{{ formatTime(message.created_at) }}</span>
           </div>
@@ -282,6 +290,14 @@
         </div>
       </div>
     </div>
+
+    <EditHistoryDialog
+      v-model:visible="historyDialogVisible"
+      :message-id="historyMessageId"
+      :fetch-history="getMessageEditHistory"
+      :show-user="false"
+      @close="historyMessageId = null"
+    />
   </div>
 </template>
 
@@ -290,13 +306,14 @@ import { ref, reactive, watch, computed, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import '@wangeditor/editor/dist/css/style.css'
-import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi, updateMessage as updateMessageApi } from '../utils/api.js'
+import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi, updateMessage as updateMessageApi, getMessageEditHistory } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
 import { sanitizeHtml, stripHtml } from '../utils/sanitize.js'
 import { useEditor } from '../composables/useEditor.js'
 import { useReplyEditor } from '../composables/useReplyEditor.js'
 import { useCharacterCount } from '../composables/useCharacterCount.js'
 import LevelBadge from './LevelBadge.vue'
+import EditHistoryDialog from './EditHistoryDialog.vue'
 
 const props = defineProps({
   messages: {
@@ -345,6 +362,9 @@ const editCharCount = useCharacterCount(
 const editDialogVisible = ref(false)
 const editingMessageId = ref(null)
 const editing = ref(false)
+
+const historyDialogVisible = ref(false)
+const historyMessageId = ref(null)
 
 const handleReplySubmit = async (key, htmlContent) => {
   const sanitizedHtml = sanitizeHtml(htmlContent)
@@ -493,10 +513,20 @@ const canEdit = (message) => {
   return message.username === currentUser.value.username
 }
 
+const canViewHistory = (message) => {
+  if (!isLoggedIn.value || !currentUser.value) return false
+  return message.username === currentUser.value.username
+}
+
 const getEditButtonTitle = (message) => {
   if (!canEdit(message)) return ''
   if (!isWithinEditTime(message)) return '编辑时间已过期（发布后5分钟内可编辑）'
   return '编辑留言'
+}
+
+const openHistoryDialog = (message) => {
+  historyMessageId.value = message.id
+  historyDialogVisible.value = true
 }
 
 const openEditDialog = (message) => {
@@ -832,6 +862,22 @@ const formatTime = (dateStr) => {
   padding: 5px 10px;
   border: 1px dashed #e0e0e0;
   border-radius: 6px;
+}
+
+.history-btn {
+  background: none;
+  border: 1px solid #e0e0e0;
+  color: #8e44ad;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.history-btn:hover {
+  background: #faf0ff;
+  border-color: #8e44ad;
 }
 
 .message-content {
