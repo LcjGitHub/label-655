@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/auth.js'
 import { useAdminStore } from '../store/admin.js'
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
