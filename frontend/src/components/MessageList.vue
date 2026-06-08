@@ -26,6 +26,12 @@
           <div class="user-info">
             <div class="user-name-row">
               <span class="username">{{ message.username }}</span>
+              <LevelBadge
+                v-if="message.author_level"
+                :level="message.author_level"
+                :icon="message.author_level_icon"
+                :points="message.author_points"
+              />
               <span v-if="message.is_pinned === 1" class="pinned-tag">📌 置顶</span>
               <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
             </div>
@@ -290,6 +296,7 @@ import { sanitizeHtml, stripHtml } from '../utils/sanitize.js'
 import { useEditor } from '../composables/useEditor.js'
 import { useReplyEditor } from '../composables/useReplyEditor.js'
 import { useCharacterCount } from '../composables/useCharacterCount.js'
+import LevelBadge from './LevelBadge.vue'
 
 const props = defineProps({
   messages: {
@@ -762,8 +769,9 @@ const formatTime = (dateStr) => {
 
 .user-name-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .username {

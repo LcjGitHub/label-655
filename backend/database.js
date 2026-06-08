@@ -5,6 +5,39 @@ const bcrypt = require('bcrypt');
 const dbPath = path.join(__dirname, 'messages.db');
 let db;
 
+const POINT_RULES = {
+  POST_MESSAGE: 5,
+  LIKE_RECEIVED: 1,
+  DAILY_CHECKIN: 2,
+  DAILY_POST_LIMIT: 50
+};
+
+const LEVELS = [
+  { name: '新手', minPoints: 0, icon: '🌱', color: '#95a5a6' },
+  { name: '活跃用户', minPoints: 50, icon: '🌿', color: '#27ae60' },
+  { name: '达人', minPoints: 200, icon: '🌳', color: '#f39c12' },
+  { name: '专家', minPoints: 500, icon: '⭐', color: '#e74c3c' }
+];
+
+function getLevelByPoints(points) {
+  let level = LEVELS[0];
+  for (let i = LEVELS.length - 1; i >= 0; i--) {
+    if (points >= LEVELS[i].minPoints) {
+      level = LEVELS[i];
+      break;
+    }
+  }
+  return { ...level, nextLevel: LEVELS[LEVELS.indexOf(level) + 1] || null };
+}
+
+function getLevelConfig() {
+  return LEVELS.map(level => ({
+    name: level.name,
+    minPoints: level.minPoints,
+    icon: level.icon
+  }));
+}
+
 function initDatabase() {
   db = new DatabaseSync(dbPath);
   console.log('已连接到 SQLite 数据库');
@@ -20,7 +53,20 @@ function createTables() {
       username TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
+      points INTEGER NOT NULL DEFAULT 0,
+      level TEXT NOT NULL DEFAULT '新手',
+      last_checkin_date TEXT,
       created_at DATETIME NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS point_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      points INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      related_id INTEGER,
+      created_at DATETIME NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id)
     );
 
     CREATE TABLE IF NOT EXISTS admins (
@@ -178,6 +224,24 @@ function migrateDatabase() {
       db.exec('ALTER TABLE messages ADD COLUMN pinned_at DATETIME');
       console.log('已迁移 messages 表，添加 pinned_at 字段');
     }
+
+    const userColumns = db.prepare("PRAGMA table_info(users)").all();
+    const hasPointsColumn = userColumns.some(col => col.name === 'points');
+    const hasLevelColumn = userColumns.some(col => col.name === 'level');
+    const hasLastCheckinColumn = userColumns.some(col => col.name === 'last_checkin_date');
+
+    if (!hasPointsColumn) {
+      db.exec('ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0');
+      console.log('已迁移 users 表，添加 points 字段');
+    }
+    if (!hasLevelColumn) {
+      db.exec("ALTER TABLE users ADD COLUMN level TEXT NOT NULL DEFAULT '新手'");
+      console.log('已迁移 users 表，添加 level 字段');
+    }
+    if (!hasLastCheckinColumn) {
+      db.exec('ALTER TABLE users ADD COLUMN last_checkin_date TEXT');
+      console.log('已迁移 users 表，添加 last_checkin_date 字段');
+    }
   } catch (err) {
     console.error('数据库迁移失败:', err);
   }
@@ -196,14 +260,13 @@ function getAdminById(id) {
 function createUser(username, password, email) {
   const createdAt = new Date().toISOString();
   const hashedPassword = bcrypt.hashSync(password, 10);
+  const initialPoints = 0;
+  const initialLevel = '新手';
 
-  const stmt = db.prepare('INSERT INTO users (username, password, email, created_at) VALUES (?, ?, ?, ?)');
-  const result = stmt.run(username, hashedPassword, email, createdAt);
+  const stmt = db.prepare('INSERT INTO users (username, password, email, points, level, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const result = stmt.run(username, hashedPassword, email, initialPoints, initialLevel, createdAt);
 
-  const getStmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
-  const user = getStmt.get(result.lastInsertRowid);
-
-  return user;
+  return getUserById(result.lastInsertRowid);
 }
 
 function getUserByUsername(username) {
@@ -217,8 +280,153 @@ function getUserByEmail(email) {
 }
 
 function getUserById(id) {
-  const stmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
-  return stmt.get(id);
+  const stmt = db.prepare('SELECT id, username, email, points, level, last_checkin_date, created_at FROM users WHERE id = ?');
+  const user = stmt.get(id);
+  if (user) {
+    const levelInfo = getLevelByPoints(user.points);
+    user.level_info = levelInfo;
+  }
+  return user;
+}
+
+function getUserWithFullInfo(id) {
+  const user = getUserById(id);
+  if (!user) return null;
+  return user;
+}
+
+function addPoints(userId, points, reason, relatedId = null) {
+  const user = getUserById(userId);
+  if (!user) {
+    throw new Error('用户不存在');
+  }
+
+  const newPoints = user.points + points;
+  const levelInfo = getLevelByPoints(newPoints);
+  const createdAt = new Date().toISOString();
+
+  try {
+    db.exec('BEGIN TRANSACTION');
+
+    db.prepare('UPDATE users SET points = ?, level = ? WHERE id = ?').run(newPoints, levelInfo.name, userId);
+    db.prepare('INSERT INTO point_logs (user_id, points, reason, related_id, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, points, reason, relatedId, createdAt);
+
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  return { points: newPoints, level: levelInfo.name, levelInfo };
+}
+
+function getTodayDateKey() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getTodayPostPoints(userId) {
+  const todayKey = getTodayDateKey();
+  const startOfDay = new Date(todayKey + 'T00:00:00.000Z').toISOString();
+  const nextDay = new Date(todayKey + 'T23:59:59.999Z').toISOString();
+
+  const stmt = db.prepare(`
+    SELECT COALESCE(SUM(points), 0) as total
+    FROM point_logs
+    WHERE user_id = ? AND reason = 'post_message' AND created_at >= ? AND created_at <= ?
+  `);
+  const result = stmt.get(userId, startOfDay, nextDay);
+  return result.total;
+}
+
+function dailyCheckIn(userId) {
+  const user = getUserById(userId);
+  if (!user) {
+    throw new Error('用户不存在');
+  }
+
+  const todayKey = getTodayDateKey();
+  if (user.last_checkin_date === todayKey) {
+    return { checkedIn: false, message: '今日已签到', points: user.points, level: user.level };
+  }
+
+  try {
+    db.exec('BEGIN TRANSACTION');
+
+    db.prepare('UPDATE users SET last_checkin_date = ? WHERE id = ?').run(todayKey, userId);
+    const result = addPoints(userId, POINT_RULES.DAILY_CHECKIN, 'daily_checkin');
+
+    db.exec('COMMIT');
+
+    return { checkedIn: true, message: '签到成功', points: result.points, level: result.level, levelInfo: result.levelInfo, earnedPoints: POINT_RULES.DAILY_CHECKIN };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function addPostMessagePoints(userId, messageId) {
+  const todayPoints = getTodayPostPoints(userId);
+  if (todayPoints >= POINT_RULES.DAILY_POST_LIMIT) {
+    return { awarded: false, message: `每日留言积分已达上限 ${POINT_RULES.DAILY_POST_LIMIT} 分` };
+  }
+
+  const availablePoints = POINT_RULES.DAILY_POST_LIMIT - todayPoints;
+  const actualPoints = Math.min(POINT_RULES.POST_MESSAGE, availablePoints);
+
+  if (actualPoints <= 0) {
+    return { awarded: false, message: `每日留言积分已达上限 ${POINT_RULES.DAILY_POST_LIMIT} 分` };
+  }
+
+  const result = addPoints(userId, actualPoints, 'post_message', messageId);
+  return { awarded: true, points: actualPoints, totalPoints: result.points, level: result.level, levelInfo: result.levelInfo };
+}
+
+function addLikePoints(messageOwnerId, messageId) {
+  if (!messageOwnerId) {
+    return { awarded: false };
+  }
+  const result = addPoints(messageOwnerId, POINT_RULES.LIKE_RECEIVED, 'like_received', messageId);
+  return { awarded: true, points: POINT_RULES.LIKE_RECEIVED, totalPoints: result.points, level: result.level };
+}
+
+function deductLikePoints(messageOwnerId, messageId) {
+  if (!messageOwnerId) {
+    return { awarded: false };
+  }
+  const result = addPoints(messageOwnerId, -POINT_RULES.LIKE_RECEIVED, 'like_canceled', messageId);
+  return { awarded: true, points: -POINT_RULES.LIKE_RECEIVED, totalPoints: result.points, level: result.level };
+}
+
+function getPointLogs(userId, page = 1, pageSize = 20) {
+  if (pageSize < 1) pageSize = 10;
+  if (pageSize > 100) pageSize = 100;
+  if (page < 1) page = 1;
+
+  const countStmt = db.prepare('SELECT COUNT(*) as total FROM point_logs WHERE user_id = ?');
+  const { total } = countStmt.get(userId);
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages > 0 && page > totalPages) page = totalPages;
+
+  const offset = (page - 1) * pageSize;
+  const stmt = db.prepare('SELECT * FROM point_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?');
+  const logs = stmt.all(userId, pageSize, offset);
+
+  return {
+    logs,
+    pagination: {
+      currentPage: page,
+      pageSize,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  };
 }
 
 function getMessages(page, pageSize) {
@@ -471,8 +679,19 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
     likedMessageIds = likeStmt.all(ipAddress).map(row => row.message_id);
   }
 
+  const userStmt = db.prepare('SELECT id, username, points, level FROM users WHERE id = ?');
   messages.forEach(msg => {
     msg.is_liked = likedMessageIds.includes(msg.id);
+    if (msg.user_id) {
+      const author = userStmt.get(msg.user_id);
+      if (author) {
+        msg.author_points = author.points;
+        msg.author_level = author.level;
+        const levelInfo = getLevelByPoints(author.points);
+        msg.author_level_icon = levelInfo.icon;
+        msg.author_level_color = levelInfo.color;
+      }
+    }
   });
 
   return {
@@ -529,6 +748,9 @@ function toggleLike(userId, ipAddress, messageId) {
   const createdAt = new Date().toISOString();
   let result;
 
+  const messageOwnerId = message.user_id;
+  const isSelfLike = userId && messageOwnerId && userId === messageOwnerId;
+
   try {
     db.exec('BEGIN TRANSACTION');
 
@@ -536,10 +758,16 @@ function toggleLike(userId, ipAddress, messageId) {
       db.prepare(`DELETE FROM likes WHERE ${whereClause}`).run(...whereParams);
       db.prepare('UPDATE messages SET likes = likes - 1 WHERE id = ?').run(messageId);
       result = { liked: false, likes: message.likes - 1 };
+      if (userId && !isSelfLike && messageOwnerId) {
+        deductLikePoints(messageOwnerId, messageId);
+      }
     } else {
       db.prepare(`INSERT INTO likes (${insertFields}) VALUES (?, ?, ?)`).run(...insertValues, createdAt);
       db.prepare('UPDATE messages SET likes = likes + 1 WHERE id = ?').run(messageId);
       result = { liked: true, likes: message.likes + 1 };
+      if (userId && !isSelfLike && messageOwnerId) {
+        addLikePoints(messageOwnerId, messageId);
+      }
     }
 
     db.exec('COMMIT');
@@ -710,6 +938,13 @@ function getPublicStats() {
   };
 }
 
+function getMessagesByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const stmt = db.prepare(`SELECT id, user_id, username, status FROM messages WHERE id IN (${placeholders})`);
+  return stmt.all(...ids);
+}
+
 module.exports = {
   initDatabase,
   getMessages,
@@ -719,6 +954,7 @@ module.exports = {
   getUserByUsername,
   getUserByEmail,
   getUserById,
+  getUserWithFullInfo,
   getAdminByUsername,
   getAdminById,
   getAllMessagesForAdmin,
@@ -747,5 +983,16 @@ module.exports = {
   getTodayMessageCount,
   getLast7DaysTrend,
   getTopActiveUsers,
-  getHourlyDistribution
+  getHourlyDistribution,
+  getMessagesByIds,
+  addPoints,
+  dailyCheckIn,
+  addPostMessagePoints,
+  addLikePoints,
+  deductLikePoints,
+  getPointLogs,
+  getLevelByPoints,
+  getLevelConfig,
+  POINT_RULES,
+  LEVELS
 };

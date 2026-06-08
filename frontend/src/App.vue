@@ -12,7 +12,20 @@
             🛡️ 管理后台
           </router-link>
           <template v-if="isLoggedIn">
-            <span class="welcome-text">👤 {{ currentUser?.username }}</span>
+            <div class="user-info-nav">
+              <span class="welcome-text">
+                👤 {{ currentUser?.username }}
+              </span>
+              <LevelBadge
+                v-if="currentUser?.level"
+                :level="currentUser.level"
+                :icon="currentUser.level_info?.icon"
+                :points="currentUser.points"
+              />
+              <span class="user-points" title="当前积分">
+                🏆 {{ currentUser?.points ?? 0 }}
+              </span>
+            </div>
             <button class="nav-btn logout-btn" @click="handleUserLogout">退出登录</button>
           </template>
           <template v-else>
@@ -27,11 +40,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from './store/auth.js'
 import { useAdminStore } from './store/admin.js'
 import NotificationBell from './components/NotificationBell.vue'
+import LevelBadge from './components/LevelBadge.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -59,6 +73,12 @@ const handleAdminLogout = () => {
   adminStore.clearAuth()
   router.push('/admin/login')
 }
+
+onMounted(async () => {
+  if (isLoggedIn.value && !currentUser.value?.points) {
+    await authStore.refreshUserInfo()
+  }
+})
 </script>
 
 <style scoped>
@@ -113,9 +133,26 @@ const handleAdminLogout = () => {
   gap: 12px;
 }
 
+.user-info-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
 .welcome-text {
   font-size: 0.95rem;
-  margin-right: 8px;
+}
+
+.user-points {
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(255, 215, 0, 0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .nav-btn {
@@ -187,6 +224,7 @@ const handleAdminLogout = () => {
 
   .nav-menu {
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .app-header h1 {

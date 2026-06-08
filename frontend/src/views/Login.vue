@@ -95,6 +95,14 @@ const handleSubmit = async () => {
   try {
     const response = await login(form.username, form.password)
     authStore.setAuth(response.data.token, response.data.user)
+
+    if (response.data.checkIn) {
+      const checkIn = response.data.checkIn
+      if (checkIn.checkedIn) {
+        alert(`🎉 签到成功！获得 ${checkIn.earnedPoints} 积分，当前积分：${checkIn.points}`)
+      }
+    }
+
     router.push('/')
   } catch (err) {
     error.value = err.response?.data?.error || '登录失败，请稍后重试'

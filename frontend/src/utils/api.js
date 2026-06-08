@@ -83,6 +83,20 @@ export const getCurrentUserInfo = () => {
   return api.get('/auth/user')
 }
 
+export const checkIn = () => {
+  return api.post('/auth/checkin')
+}
+
+export const getPointLogs = (page = 1, pageSize = 20) => {
+  return api.get('/auth/point-logs', {
+    params: { page, pageSize }
+  })
+}
+
+export const getLevelConfig = () => {
+  return api.get('/levels/config')
+}
+
 export const getMessages = (page = 1, pageSize = 5) => {
   return api.get('/messages', {
     params: { page, pageSize }

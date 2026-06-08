@@ -1,6 +1,7 @@
 <template>
   <div class="home">
     <StatsPanel />
+    <UserProfilePanel @check-in-success="handleCheckInSuccess" />
     <MessageForm @submitted="handleMessageSubmitted" />
     <MessageList
       :messages="messages"
@@ -21,6 +22,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import StatsPanel from '../components/StatsPanel.vue'
+import UserProfilePanel from '../components/UserProfilePanel.vue'
 import MessageForm from '../components/MessageForm.vue'
 import MessageList from '../components/MessageList.vue'
 import Pagination from '../components/Pagination.vue'
@@ -68,6 +70,9 @@ const handleMessageUpdated = () => {
 
 const handleRetry = () => {
   fetchMessages(pagination.currentPage)
+}
+
+const handleCheckInSuccess = () => {
 }
 
 onMounted(() => {

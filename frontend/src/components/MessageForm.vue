@@ -58,7 +58,15 @@
             disabled
             class="disabled-input"
           />
-          <span class="user-badge">已登录</span>
+          <div class="user-badges">
+            <LevelBadge
+              v-if="currentUser?.level"
+              :level="currentUser.level"
+              :icon="currentUser.level_info?.icon"
+              :points="currentUser.points"
+            />
+            <span class="points-badge">🏆 {{ currentUser?.points ?? 0 }}</span>
+          </div>
         </div>
       </div>
 
@@ -137,6 +145,7 @@ import { useAuthStore } from '../store/auth.js'
 import { sanitizeHtml } from '../utils/sanitize.js'
 import { useEditor } from '../composables/useEditor.js'
 import { useCharacterCount } from '../composables/useCharacterCount.js'
+import LevelBadge from './LevelBadge.vue'
 
 const emit = defineEmits(['submitted'])
 const authStore = useAuthStore()
@@ -456,10 +465,21 @@ const handleSubmit = async () => {
     const response = await submitMessage(sanitizedHtml, avatarUrl.value || null)
     const message = response.data.message
 
+    if (response.data.user) {
+      authStore.updateUser(response.data.user)
+    }
+
     if (message.status === 'pending') {
       pendingMessage.value = true
     } else {
       success.value = true
+      if (response.data.pointResult) {
+        if (response.data.pointResult.awarded) {
+          success.value = `发布成功！获得 ${response.data.pointResult.points} 积分`
+        } else {
+          success.value = `发布成功！${response.data.pointResult.message || ''}`
+        }
+      }
     }
 
     editor.clearContent()
@@ -469,7 +489,7 @@ const handleSubmit = async () => {
     setTimeout(() => {
       success.value = false
       pendingMessage.value = false
-    }, 3000)
+    }, 4000)
   } catch (err) {
     error.value = err.response?.data?.error || '提交失败，请稍后重试'
     console.error(err)
@@ -697,7 +717,27 @@ onUnmounted(() => {
 }
 
 .input-with-badge input {
-  padding-right: 90px;
+  padding-right: 180px;
+}
+
+.user-badges {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.points-badge {
+  background: linear-gradient(135deg, #f1c40f 0%, #f39c12 100%);
+  color: white;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .form-group input:focus {
@@ -714,20 +754,6 @@ onUnmounted(() => {
 .disabled-input {
   color: #667eea;
   font-weight: 600;
-}
-
-.user-badge {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #27ae60;
-  color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .editor-form-group {

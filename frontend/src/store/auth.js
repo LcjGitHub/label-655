@@ -1,4 +1,5 @@
 import { reactive, computed } from 'vue'
+import { getCurrentUserInfo } from '../utils/api.js'
 
 const TOKEN_KEY = 'message_board_token'
 const USER_KEY = 'message_board_user'
@@ -32,6 +33,13 @@ export const useAuthStore = () => {
     localStorage.setItem(USER_KEY, JSON.stringify(user))
   }
 
+  const updateUser = (userData) => {
+    if (state.user) {
+      state.user = { ...state.user, ...userData }
+      localStorage.setItem(USER_KEY, JSON.stringify(state.user))
+    }
+  }
+
   const clearAuth = () => {
     state.token = null
     state.user = null
@@ -41,11 +49,28 @@ export const useAuthStore = () => {
 
   const getToken = () => state.token
 
+  const refreshUserInfo = async () => {
+    if (!state.token) return null
+    try {
+      const response = await getCurrentUserInfo()
+      if (response.data && response.data.user) {
+        state.user = response.data.user
+        localStorage.setItem(USER_KEY, JSON.stringify(state.user))
+        return state.user
+      }
+    } catch (err) {
+      console.error('刷新用户信息失败:', err)
+    }
+    return null
+  }
+
   return {
     isLoggedIn,
     currentUser,
     setAuth,
+    updateUser,
     clearAuth,
-    getToken
+    getToken,
+    refreshUserInfo
   }
 }

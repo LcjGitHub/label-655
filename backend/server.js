@@ -7,7 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const DOMPurify = require('dompurify');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, pinMessage, unpinMessage, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, pinMessage, unpinMessage, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats, dailyCheckIn, addPostMessagePoints, getPointLogs, getLevelConfig, POINT_RULES, getMessagesByIds } = require('./database');
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
@@ -305,7 +305,11 @@ app.post('/api/auth/register', (req, res) => {
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        points: user.points,
+        level: user.level,
+        level_info: user.level_info,
+        last_checkin_date: user.last_checkin_date
       }
     });
   } catch (err) {
@@ -334,6 +338,15 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
 
+    let checkInResult = null;
+    try {
+      checkInResult = dailyCheckIn(user.id);
+    } catch (checkInErr) {
+      console.error('签到失败:', checkInErr);
+    }
+
+    const userInfo = getUserById(user.id);
+
     const token = jwt.sign(
       { id: user.id, username: user.username },
       JWT_SECRET,
@@ -344,10 +357,15 @@ app.post('/api/auth/login', (req, res) => {
       message: '登录成功',
       token,
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email
-      }
+        id: userInfo.id,
+        username: userInfo.username,
+        email: userInfo.email,
+        points: userInfo.points,
+        level: userInfo.level,
+        level_info: userInfo.level_info,
+        last_checkin_date: userInfo.last_checkin_date
+      },
+      checkIn: checkInResult
     });
   } catch (err) {
     console.error(err);
@@ -361,10 +379,53 @@ app.get('/api/auth/user', authenticateToken, (req, res) => {
     if (!user) {
       return res.status(404).json({ error: '用户不存在' });
     }
-    res.json({ user });
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        points: user.points,
+        level: user.level,
+        level_info: user.level_info,
+        last_checkin_date: user.last_checkin_date,
+        created_at: user.created_at
+      }
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '获取用户信息失败' });
+  }
+});
+
+app.post('/api/auth/checkin', authenticateToken, (req, res) => {
+  try {
+    const result = dailyCheckIn(req.user.id);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '签到失败，请稍后重试' });
+  }
+});
+
+app.get('/api/auth/point-logs', authenticateToken, (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 20;
+    const result = getPointLogs(req.user.id, page, pageSize);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取积分记录失败' });
+  }
+});
+
+app.get('/api/levels/config', (req, res) => {
+  try {
+    const levels = getLevelConfig();
+    res.json({ levels, pointRules: POINT_RULES });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取等级配置失败' });
   }
 });
 
@@ -464,10 +525,27 @@ app.post('/api/messages', authenticateToken, (req, res) => {
     const message = insertMessage(req.user.id, req.user.username, sanitizedContent, avatar || null);
     const summary = plainText.length > 50 ? plainText.substring(0, 50) + '...' : plainText;
     insertNotification('new_message', `用户 ${req.user.username} 提交了新留言：${summary}`, message.id);
+
+    let pointResult = null;
     if (message.status === 'approved') {
+      pointResult = addPostMessagePoints(req.user.id, message.id);
       getCachedStats(true);
     }
-    res.status(201).json({ message });
+
+    const userInfo = getUserById(req.user.id);
+
+    res.status(201).json({
+      message,
+      pointResult,
+      user: {
+        id: userInfo.id,
+        username: userInfo.username,
+        email: userInfo.email,
+        points: userInfo.points,
+        level: userInfo.level,
+        level_info: userInfo.level_info
+      }
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '提交留言失败' });
@@ -763,7 +841,8 @@ app.put('/api/admin/messages/:id/review', authenticateAdmin, (req, res) => {
 
   try {
     const message = reviewMessage(messageId, status);
-    if (status === 'approved') {
+    if (status === 'approved' && message.user_id) {
+      addPostMessagePoints(message.user_id, message.id);
       getCachedStats(true);
     }
     res.json({ message: '审核成功', data: message });
@@ -790,6 +869,12 @@ app.post('/api/admin/messages/batch-review', authenticateAdmin, (req, res) => {
   try {
     const count = batchReviewMessages(ids, status);
     if (status === 'approved') {
+      const messages = getMessagesByIds(ids);
+      messages.forEach(msg => {
+        if (msg.user_id) {
+          addPostMessagePoints(msg.user_id, msg.id);
+        }
+      });
       getCachedStats(true);
     }
     res.json({ message: `已成功审核 ${count} 条留言`, count });
