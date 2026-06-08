@@ -23,7 +23,22 @@
           <div class="user-info">
             <span class="username">{{ message.username }}</span>
             <span class="time">{{ formatTime(message.created_at) }}</span>
+            <span v-if="message.updated_at" class="edited-tag">（已编辑）</span>
           </div>
+          <button
+            v-if="canEdit(message)"
+            @click="openEditDialog(message)"
+            class="edit-btn"
+            :class="{ disabled: !isWithinEditTime(message) }"
+            :disabled="!isWithinEditTime(message)"
+            :title="getEditButtonTitle(message)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            <span v-if="isWithinEditTime(message)" class="edit-countdown">{{ getCountdownText(message.id) }}</span>
+          </button>
         </div>
         <div class="message-content">{{ message.content }}</div>
 
@@ -168,13 +183,49 @@
         </div>
       </div>
     </div>
+
+    <div v-if="editDialogVisible" class="edit-dialog-overlay" @click.self="closeEditDialog">
+      <div class="edit-dialog">
+        <div class="edit-dialog-header">
+          <h3>编辑留言</h3>
+          <div class="edit-dialog-countdown" v-if="editingMessageId && countdowns[editingMessageId] !== undefined">
+            剩余可编辑时间：{{ formatCountdown(countdowns[editingMessageId]) }}
+          </div>
+        </div>
+        <div class="edit-dialog-body">
+          <textarea
+            v-model="editContent"
+            placeholder="修改留言内容..."
+            maxlength="500"
+            rows="5"
+            :disabled="editing"
+          ></textarea>
+          <div class="char-count-wrapper">
+            <span class="char-count">{{ editContent.length }}/500</span>
+          </div>
+          <p v-if="editError" class="error-text">{{ editError }}</p>
+        </div>
+        <div class="edit-dialog-footer">
+          <button @click="closeEditDialog" class="cancel-btn" :disabled="editing">
+            取消
+          </button>
+          <button
+            @click="saveEdit"
+            class="submit-reply-btn"
+            :disabled="editing || !editContent.trim()"
+          >
+            {{ editing ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, watch, computed, nextTick } from 'vue'
+import { ref, reactive, watch, computed, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi } from '../utils/api.js'
+import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi, updateMessage as updateMessageApi } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
 
 const props = defineProps({
@@ -196,11 +247,14 @@ const props = defineProps({
   }
 })
 
-defineEmits(['retry'])
+const emit = defineEmits(['retry', 'message-updated'])
 
 const router = useRouter()
 const authStore = useAuthStore()
 const isLoggedIn = computed(() => authStore.isLoggedIn.value)
+const currentUser = computed(() => authStore.currentUser.value)
+
+const EDIT_WINDOW_MINUTES = 5
 
 const showReplyForm = reactive({})
 const replyContent = reactive({})
@@ -220,6 +274,15 @@ const localLikeStatus = reactive({})
 const liking = reactive({})
 const likeErrors = reactive({})
 
+const editDialogVisible = ref(false)
+const editingMessageId = ref(null)
+const editContent = ref('')
+const editing = ref(false)
+const editError = ref('')
+
+const countdowns = reactive({})
+let countdownTimer = null
+
 const fetchReplies = async (messageId) => {
   try {
     const response = await getReplies(messageId)
@@ -229,6 +292,106 @@ const fetchReplies = async (messageId) => {
     }
   } catch (err) {
     console.error('获取回复失败:', err)
+  }
+}
+
+const getRemainingSeconds = (message) => {
+  const createdAt = new Date(message.created_at)
+  const now = new Date()
+  const elapsedMs = now - createdAt
+  const totalMs = EDIT_WINDOW_MINUTES * 60 * 1000
+  const remainingMs = totalMs - elapsedMs
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0
+}
+
+const updateCountdowns = () => {
+  props.messages.forEach((message) => {
+    if (canEdit(message)) {
+      countdowns[message.id] = getRemainingSeconds(message)
+    }
+  })
+}
+
+const startCountdownTimer = () => {
+  if (countdownTimer) return
+  updateCountdowns()
+  countdownTimer = setInterval(() => {
+    updateCountdowns()
+  }, 1000)
+}
+
+const stopCountdownTimer = () => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+const formatCountdown = (seconds) => {
+  if (seconds <= 0) return '已超时'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const getCountdownText = (messageId) => {
+  const seconds = countdowns[messageId]
+  if (seconds === undefined || seconds <= 0) return ''
+  return formatCountdown(seconds)
+}
+
+const isWithinEditTime = (message) => {
+  const seconds = getRemainingSeconds(message)
+  return seconds > 0
+}
+
+const canEdit = (message) => {
+  if (!isLoggedIn.value || !currentUser.value) return false
+  return message.username === currentUser.value.username
+}
+
+const getEditButtonTitle = (message) => {
+  if (!canEdit(message)) return ''
+  if (!isWithinEditTime(message)) return '编辑时间已过期（发布后5分钟内可编辑）'
+  return '编辑留言'
+}
+
+const openEditDialog = (message) => {
+  if (!isWithinEditTime(message)) return
+  editingMessageId.value = message.id
+  editContent.value = message.content
+  editError.value = ''
+  editDialogVisible.value = true
+}
+
+const closeEditDialog = () => {
+  if (editing.value) return
+  editDialogVisible.value = false
+  editingMessageId.value = null
+  editContent.value = ''
+  editError.value = ''
+}
+
+const saveEdit = async () => {
+  if (!editingMessageId.value || !editContent.value.trim()) return
+
+  editing.value = true
+  editError.value = ''
+
+  try {
+    await updateMessageApi(editingMessageId.value, editContent.value.trim())
+    closeEditDialog()
+    emit('message-updated')
+  } catch (err) {
+    editError.value = err.response?.data?.error || '保存失败，请稍后重试'
+    console.error('更新留言失败:', err)
+    if (err.response?.status === 403) {
+      setTimeout(() => {
+        closeEditDialog()
+      }, 2000)
+    }
+  } finally {
+    editing.value = false
   }
 }
 
@@ -249,6 +412,7 @@ watch(
       localLikes[message.id] = message.likes ?? 0
       localLikeStatus[message.id] = message.is_liked ?? false
     })
+    updateCountdowns()
   },
   { immediate: true, deep: true }
 )
@@ -257,8 +421,18 @@ watch(
   () => authStore.isLoggedIn.value,
   (isLoggedIn) => {
     clearLocalLikeCache()
-  }
+    if (isLoggedIn) {
+      startCountdownTimer()
+    } else {
+      stopCountdownTimer()
+    }
+  },
+  { immediate: true }
 )
+
+onUnmounted(() => {
+  stopCountdownTimer()
+})
 
 const getDisplayedReplies = (messageId) => {
   if (!replies[messageId]) return []
@@ -499,6 +673,7 @@ const formatTime = (dateStr) => {
   display: flex;
   align-items: center;
   margin-bottom: 12px;
+  position: relative;
 }
 
 .avatar {
@@ -519,6 +694,7 @@ const formatTime = (dateStr) => {
 .user-info {
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 .username {
@@ -531,6 +707,43 @@ const formatTime = (dateStr) => {
   font-size: 0.85rem;
   color: #999;
   margin-top: 2px;
+}
+
+.edited-tag {
+  font-size: 0.8rem;
+  color: #999;
+  margin-left: 5px;
+}
+
+.edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid #e0e0e0;
+  color: #667eea;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.edit-btn:hover:not(:disabled) {
+  background: #f0f0ff;
+  border-color: #667eea;
+}
+
+.edit-btn:disabled,
+.edit-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #999;
+}
+
+.edit-countdown {
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .message-content {
@@ -673,6 +886,11 @@ const formatTime = (dateStr) => {
 .char-count {
   font-size: 0.8rem;
   color: #999;
+}
+
+.char-count-wrapper {
+  text-align: right;
+  margin-top: 5px;
 }
 
 .cancel-btn {
@@ -877,5 +1095,81 @@ const formatTime = (dateStr) => {
 
 .view-all-btn:hover {
   background: #f0f0ff;
+}
+
+.edit-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.edit-dialog {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.edit-dialog-header {
+  padding: 20px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.edit-dialog-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.edit-dialog-countdown {
+  font-size: 0.85rem;
+  color: #e67e22;
+  font-weight: 500;
+}
+
+.edit-dialog-body {
+  padding: 20px;
+}
+
+.edit-dialog-body textarea {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.6;
+  transition: border-color 0.3s;
+  box-sizing: border-box;
+}
+
+.edit-dialog-body textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.edit-dialog-body textarea:disabled {
+  background: #f0f0f0;
+  cursor: not-allowed;
+}
+
+.edit-dialog-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

@@ -108,6 +108,12 @@ function migrateDatabase() {
       console.log('已迁移 messages 表，添加 is_deleted 字段');
     }
 
+    const hasUpdatedAtColumn = msgColumns.some(col => col.name === 'updated_at');
+    if (!hasUpdatedAtColumn) {
+      db.exec('ALTER TABLE messages ADD COLUMN updated_at DATETIME');
+      console.log('已迁移 messages 表，添加 updated_at 字段');
+    }
+
     const likesColumns = db.prepare("PRAGMA table_info(likes)").all();
     const hasIpColumn = likesColumns.some(col => col.name === 'ip_address');
     const userIdCol = likesColumns.find(col => col.name === 'user_id');
@@ -424,6 +430,16 @@ function getMessagesWithLikeStatus(page, pageSize, userId, ipAddress) {
   };
 }
 
+function updateMessage(messageId, content) {
+  const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message) {
+    throw new Error('留言不存在');
+  }
+  const updatedAt = new Date().toISOString();
+  db.prepare('UPDATE messages SET content = ?, updated_at = ? WHERE id = ?').run(content, updatedAt, messageId);
+  return db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+}
+
 function toggleLike(userId, ipAddress, messageId) {
   if (!userId && !ipAddress) {
     throw new Error('无法识别用户身份');
@@ -499,5 +515,6 @@ module.exports = {
   getMessageById,
   getReplyById,
   getLikeStatus,
-  toggleLike
+  toggleLike,
+  updateMessage
 };

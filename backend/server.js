@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -252,6 +252,58 @@ app.post('/api/messages', authenticateToken, (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '提交留言失败' });
+  }
+});
+
+app.put('/api/messages/:messageId', authenticateToken, (req, res) => {
+  const messageId = parseInt(req.params.messageId);
+  const { content } = req.body;
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  if (!content) {
+    return res.status(400).json({ error: '留言内容不能为空' });
+  }
+
+  const trimmedContent = content.trim();
+
+  if (trimmedContent.length === 0) {
+    return res.status(400).json({ error: '留言内容不能为空' });
+  }
+
+  if (trimmedContent.length > 500) {
+    return res.status(400).json({ error: '留言内容不能超过500个字符' });
+  }
+
+  try {
+    const message = getMessageById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: '留言不存在' });
+    }
+
+    if (message.username !== req.user.username) {
+      return res.status(403).json({ error: '只有留言的发布者才能编辑此留言' });
+    }
+
+    const createdAt = new Date(message.created_at);
+    const now = new Date();
+    const diffMinutes = (now - createdAt) / (1000 * 60);
+    const EDIT_WINDOW_MINUTES = 5;
+
+    if (diffMinutes > EDIT_WINDOW_MINUTES) {
+      return res.status(403).json({ error: `编辑时间已过期，只能在发布后${EDIT_WINDOW_MINUTES}分钟内编辑留言` });
+    }
+
+    const updatedMessage = updateMessage(messageId, trimmedContent);
+    res.json({ message: updatedMessage });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: '更新留言失败，请稍后重试' });
   }
 });
 

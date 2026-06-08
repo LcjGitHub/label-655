@@ -7,6 +7,7 @@
       :loading="loading"
       :error="error"
       @retry="handleRetry"
+      @message-updated="handleMessageUpdated"
     />
     <Pagination
       :pagination="pagination"
@@ -57,6 +58,10 @@ const handlePageChange = (page) => {
 
 const handleMessageSubmitted = () => {
   fetchMessages(1)
+}
+
+const handleMessageUpdated = () => {
+  fetchMessages(pagination.currentPage)
 }
 
 const handleRetry = () => {

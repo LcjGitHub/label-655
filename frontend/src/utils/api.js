@@ -105,6 +105,10 @@ export const toggleLike = (messageId) => {
   return api.post(`/messages/${messageId}/like`)
 }
 
+export const updateMessage = (messageId, content) => {
+  return api.put(`/messages/${messageId}`, { content })
+}
+
 export const adminLogin = (username, password) => {
   return api.post('/admin/login', { username, password })
 }
