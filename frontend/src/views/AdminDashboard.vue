@@ -194,6 +194,7 @@ import {
   batchDeleteMessages
 } from '../utils/api.js'
 import { useAdminStore } from '../store/admin.js'
+import { stripHtml } from '../utils/sanitize.js'
 
 const router = useRouter()
 const adminStore = useAdminStore()
@@ -236,12 +237,6 @@ const isAllSelected = computed(() => {
 
 const getAvatar = (username) => {
   return username ? username.charAt(0).toUpperCase() : '?'
-}
-
-const stripHtml = (html) => {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  return tmp.textContent || tmp.innerText || ''
 }
 
 const getStatusText = (status, isDeleted) => {

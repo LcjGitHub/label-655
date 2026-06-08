@@ -83,6 +83,7 @@
         <span class="char-count" :class="{ 'char-count-warning': plainTextLength > 450, 'char-count-error': plainTextLength > 500 }">
           {{ plainTextLength }}/500
         </span>
+        <p v-if="imageUploadError" class="image-upload-error">{{ imageUploadError }}</p>
       </div>
 
       <button type="submit" class="submit-btn" :disabled="submitting || !isValid || uploading">
@@ -91,6 +92,7 @@
 
       <p v-if="error" class="error-message">{{ error }}</p>
       <p v-if="success" class="success-message">留言发布成功！</p>
+      <p v-if="pendingMessage" class="pending-message">已提交等待审核</p>
     </form>
 
     <div v-if="cropDialogVisible" class="crop-dialog-overlay" @click.self="closeCropDialog">
@@ -127,12 +129,12 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, onUnmounted } from 'vue'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
 import '@wangeditor/editor/dist/css/style.css'
 import { submitMessage, uploadAvatar, uploadImage } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
-import DOMPurify from 'dompurify'
+import { sanitizeHtml, stripHtml } from '../utils/sanitize.js'
 
 const emit = defineEmits(['submitted'])
 const authStore = useAuthStore()
@@ -141,11 +143,14 @@ const isLoggedIn = authStore.isLoggedIn
 const currentUser = authStore.currentUser
 
 const htmlContent = ref('<p><br></p>')
+const plainTextLength = ref(0)
 const editorRef = shallowRef()
 
 const submitting = ref(false)
 const error = ref('')
 const success = ref(false)
+const pendingMessage = ref(false)
+const imageUploadError = ref('')
 
 const fileInput = ref(null)
 const avatarUrl = ref('')
@@ -176,16 +181,14 @@ let cropSelectionStart = null
 const MAX_CONTENT_LENGTH = 500
 
 const toolbarConfig = {
-  excludeKeys: [
-    'group-video',
-    'insertVideo',
-    'uploadVideo',
-    'fullScreen',
-    'codeBlock',
-    'todo',
-    'divider',
-    'emotion',
-    'blockquote'
+  toolbarKeys: [
+    'bold',
+    'italic',
+    'underline',
+    'bulletedList',
+    'numberedList',
+    'insertLink',
+    'uploadImage'
   ]
 }
 
@@ -229,11 +232,16 @@ const compressImage = (file, maxWidth = 800, quality = 0.8) => {
   })
 }
 
+const isValid = computed(() => {
+  return plainTextLength.value > 0 && plainTextLength.value <= MAX_CONTENT_LENGTH
+})
+
 const editorConfig = {
   placeholder: '分享您的想法...',
   MENU_CONF: {
     uploadImage: {
       async customUpload(file, insertFn) {
+        imageUploadError.value = ''
         try {
           if (!file.type.startsWith('image/')) {
             throw new Error('只能上传图片文件')
@@ -248,32 +256,25 @@ const editorConfig = {
           insertFn(response.data.url, file.name, response.data.url)
         } catch (err) {
           console.error('图片上传失败:', err)
-          alert(err.message || '图片上传失败，请重试')
+          imageUploadError.value = err.message || '图片上传失败，请重试'
         }
       }
     }
   }
 }
 
-const stripHtml = (html) => {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  return tmp.textContent || tmp.innerText || ''
-}
-
-const plainTextLength = computed(() => {
-  return stripHtml(htmlContent.value).length
-})
-
-const isValid = computed(() => {
-  return plainTextLength.value > 0 && plainTextLength.value <= MAX_CONTENT_LENGTH
-})
-
 const handleEditorCreated = (editor) => {
   editorRef.value = editor
+  plainTextLength.value = stripHtml(editor.getHtml()).length
 }
 
-const handleEditorChange = () => {
+const handleEditorChange = (editor) => {
+  const html = editor.getHtml()
+  htmlContent.value = html
+  plainTextLength.value = stripHtml(html).length
+  if (imageUploadError.value) {
+    imageUploadError.value = ''
+  }
 }
 
 const cropSelectionStyle = computed(() => ({
@@ -534,17 +535,31 @@ const handleSubmit = async () => {
   submitting.value = true
   error.value = ''
   success.value = false
+  pendingMessage.value = false
+  imageUploadError.value = ''
 
   try {
-    const sanitizedHtml = DOMPurify.sanitize(htmlContent.value)
-    await submitMessage(sanitizedHtml, avatarUrl.value || null)
-    success.value = true
+    const sanitizedHtml = sanitizeHtml(htmlContent.value)
+    const response = await submitMessage(sanitizedHtml, avatarUrl.value || null)
+    const message = response.data.message
+
+    if (message.status === 'pending') {
+      pendingMessage.value = true
+    } else {
+      success.value = true
+    }
+
     htmlContent.value = '<p><br></p>'
+    plainTextLength.value = 0
+    if (editorRef.value) {
+      editorRef.value.clear()
+    }
     avatarUrl.value = ''
     emit('submitted')
 
     setTimeout(() => {
       success.value = false
+      pendingMessage.value = false
     }, 3000)
   } catch (err) {
     error.value = err.response?.data?.error || '提交失败，请稍后重试'
@@ -810,7 +825,7 @@ onUnmounted(() => {
 }
 
 .editor-form-group {
-  margin-bottom: 35px;
+  margin-bottom: 45px;
 }
 
 .editor-wrapper {
@@ -862,6 +877,15 @@ onUnmounted(() => {
   color: #e74c3c;
 }
 
+.image-upload-error {
+  position: absolute;
+  left: 0;
+  bottom: -22px;
+  font-size: 0.8rem;
+  color: #e74c3c;
+  margin: 0;
+}
+
 .submit-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -897,6 +921,12 @@ onUnmounted(() => {
 
 .success-message {
   color: #27ae60;
+  margin-top: 15px;
+  font-size: 0.9rem;
+}
+
+.pending-message {
+  color: #f39c12;
   margin-top: 15px;
   font-size: 0.9rem;
 }

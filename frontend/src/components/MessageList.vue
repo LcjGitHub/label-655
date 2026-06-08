@@ -78,16 +78,32 @@
         </div>
 
         <div v-if="showReplyForm[message.id]" class="reply-form">
-          <textarea
-            v-model="replyContent[message.id]"
-            :placeholder="isLoggedIn ? '写下你的回复...' : '请先登录后回复'"
-            :disabled="!isLoggedIn || replying[message.id]"
-            maxlength="300"
-            rows="2"
-            @keydown.ctrl.enter="submitReply(message.id)"
-          ></textarea>
+          <div class="editor-wrapper small-editor" :class="{ 'editor-disabled': replying[message.id] }">
+            <Toolbar
+              class="editor-toolbar"
+              :editor="replyEditors[message.id]"
+              :default-config="replyToolbarConfig"
+              mode="default"
+            />
+            <Editor
+              class="editor-content"
+              v-model="replyHtmlContent[message.id]"
+              :default-config="getReplyEditorConfig(message.id)"
+              mode="default"
+              @onCreated="(editor) => handleReplyEditorCreated(message.id, editor)"
+              @onChange="(editor) => handleReplyEditorChange(message.id, editor)"
+            />
+          </div>
           <div class="reply-form-actions">
-            <span class="char-count">{{ (replyContent[message.id] || '').length }}/300</span>
+            <span
+              class="char-count"
+              :class="{
+                'char-count-warning': replyPlainTextLength[message.id] > 270,
+                'char-count-error': replyPlainTextLength[message.id] > 300
+              }"
+            >
+              {{ replyPlainTextLength[message.id] || 0 }}/300
+            </span>
             <div>
               <button @click="cancelReply(message.id)" class="cancel-btn" :disabled="replying[message.id]">
                 取消
@@ -95,7 +111,7 @@
               <button
                 @click="submitReply(message.id)"
                 class="submit-reply-btn"
-                :disabled="!isLoggedIn || replying[message.id] || !replyContent[message.id]?.trim()"
+                :disabled="replying[message.id] || replyPlainTextLength[message.id] <= 0 || replyPlainTextLength[message.id] > 300"
               >
                 {{ replying[message.id] ? '提交中...' : '发布回复' }}
               </button>
@@ -133,16 +149,32 @@
               <div class="reply-content rich-text-content" v-html="reply.content"></div>
 
               <div v-if="showChildReplyForm[`${message.id}-${reply.id}`]" class="child-reply-form">
-                <textarea
-                  v-model="childReplyContent[`${message.id}-${reply.id}`]"
-                  placeholder="写下你的回复..."
-                  :disabled="childReplying[`${message.id}-${reply.id}`]"
-                  maxlength="300"
-                  rows="2"
-                  @keydown.ctrl.enter="submitChildReply(message.id, reply.id)"
-                ></textarea>
+                <div class="editor-wrapper small-editor" :class="{ 'editor-disabled': childReplying[`${message.id}-${reply.id}`] }">
+                  <Toolbar
+                    class="editor-toolbar"
+                    :editor="childReplyEditors[`${message.id}-${reply.id}`]"
+                    :default-config="replyToolbarConfig"
+                    mode="default"
+                  />
+                  <Editor
+                    class="editor-content"
+                    v-model="childReplyHtmlContent[`${message.id}-${reply.id}`]"
+                    :default-config="getChildReplyEditorConfig(message.id, reply.id)"
+                    mode="default"
+                    @onCreated="(editor) => handleChildReplyEditorCreated(message.id, reply.id, editor)"
+                    @onChange="(editor) => handleChildReplyEditorChange(message.id, reply.id, editor)"
+                  />
+                </div>
                 <div class="reply-form-actions">
-                  <span class="char-count">{{ (childReplyContent[`${message.id}-${reply.id}`] || '').length }}/300</span>
+                  <span
+                    class="char-count"
+                    :class="{
+                      'char-count-warning': childReplyPlainTextLength[`${message.id}-${reply.id}`] > 270,
+                      'char-count-error': childReplyPlainTextLength[`${message.id}-${reply.id}`] > 300
+                    }"
+                  >
+                    {{ childReplyPlainTextLength[`${message.id}-${reply.id}`] || 0 }}/300
+                  </span>
                   <div>
                     <button @click="cancelChildReply(message.id, reply.id)" class="cancel-btn" :disabled="childReplying[`${message.id}-${reply.id}`]">
                       取消
@@ -150,7 +182,7 @@
                     <button
                       @click="submitChildReply(message.id, reply.id)"
                       class="submit-reply-btn"
-                      :disabled="childReplying[`${message.id}-${reply.id}`] || !childReplyContent[`${message.id}-${reply.id}`]?.trim()"
+                      :disabled="childReplying[`${message.id}-${reply.id}`] || childReplyPlainTextLength[`${message.id}-${reply.id}`] <= 0 || childReplyPlainTextLength[`${message.id}-${reply.id}`] > 300"
                     >
                       {{ childReplying[`${message.id}-${reply.id}`] ? '提交中...' : '发布回复' }}
                     </button>
@@ -209,15 +241,32 @@
           </div>
         </div>
         <div class="edit-dialog-body">
-          <textarea
-            v-model="editContent"
-            placeholder="修改留言内容..."
-            maxlength="500"
-            rows="5"
-            :disabled="editing"
-          ></textarea>
+          <div class="editor-wrapper" :class="{ 'editor-disabled': editing }">
+            <Toolbar
+              class="editor-toolbar"
+              :editor="editEditorRef"
+              :default-config="toolbarConfig"
+              mode="default"
+            />
+            <Editor
+              class="editor-content"
+              v-model="editHtmlContent"
+              :default-config="editEditorConfig"
+              mode="default"
+              @onCreated="handleEditEditorCreated"
+              @onChange="handleEditEditorChange"
+            />
+          </div>
           <div class="char-count-wrapper">
-            <span class="char-count">{{ editContent.length }}/500</span>
+            <span
+              class="char-count"
+              :class="{
+                'char-count-warning': editPlainTextLength > 450,
+                'char-count-error': editPlainTextLength > 500
+              }"
+            >
+              {{ editPlainTextLength }}/500
+            </span>
           </div>
           <p v-if="editError" class="error-text">{{ editError }}</p>
         </div>
@@ -228,7 +277,7 @@
           <button
             @click="saveEdit"
             class="submit-reply-btn"
-            :disabled="editing || !editContent.trim()"
+            :disabled="editing || editPlainTextLength <= 0 || editPlainTextLength > 500"
           >
             {{ editing ? '保存中...' : '保存' }}
           </button>
@@ -239,10 +288,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, computed, nextTick, onUnmounted } from 'vue'
+import { ref, reactive, watch, computed, nextTick, onUnmounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi, updateMessage as updateMessageApi } from '../utils/api.js'
+import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
+import '@wangeditor/editor/dist/css/style.css'
+import { getReplies, submitReply as submitReplyApi, toggleLike as toggleLikeApi, updateMessage as updateMessageApi, uploadImage } from '../utils/api.js'
 import { useAuthStore } from '../store/auth.js'
+import { sanitizeHtml, stripHtml } from '../utils/sanitize.js'
 
 const props = defineProps({
   messages: {
@@ -271,14 +323,20 @@ const isLoggedIn = computed(() => authStore.isLoggedIn.value)
 const currentUser = computed(() => authStore.currentUser.value)
 
 const EDIT_WINDOW_MINUTES = 5
+const MAX_REPLY_LENGTH = 300
+const MAX_MESSAGE_LENGTH = 500
 
 const showReplyForm = reactive({})
-const replyContent = reactive({})
+const replyHtmlContent = reactive({})
+const replyPlainTextLength = reactive({})
+const replyEditors = reactive({})
 const replying = reactive({})
 const replyErrors = reactive({})
 
 const showChildReplyForm = reactive({})
-const childReplyContent = reactive({})
+const childReplyHtmlContent = reactive({})
+const childReplyPlainTextLength = reactive({})
+const childReplyEditors = reactive({})
 const childReplying = reactive({})
 const childReplyErrors = reactive({})
 
@@ -292,12 +350,120 @@ const likeErrors = reactive({})
 
 const editDialogVisible = ref(false)
 const editingMessageId = ref(null)
-const editContent = ref('')
+const editHtmlContent = ref('<p><br></p>')
+const editPlainTextLength = ref(0)
+const editEditorRef = shallowRef()
 const editing = ref(false)
 const editError = ref('')
 
 const countdowns = reactive({})
 let countdownTimer = null
+
+const compressImage = (file, maxWidth = 800, quality = 0.8) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width)
+          width = maxWidth
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('图片压缩失败'))
+              return
+            }
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            })
+            resolve(compressedFile)
+          },
+          'image/jpeg',
+          quality
+        )
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = e.target.result
+    }
+    reader.onerror = () => reject(new Error('图片读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+const createUploadFn = (errorRef) => ({
+  async customUpload(file, insertFn) {
+    try {
+      if (!file.type.startsWith('image/')) {
+        throw new Error('只能上传图片文件')
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('图片大小不能超过 5MB')
+      }
+      const compressedFile = await compressImage(file)
+      const formData = new FormData()
+      formData.append('image', compressedFile)
+      const response = await uploadImage(formData)
+      insertFn(response.data.url, file.name, response.data.url)
+    } catch (err) {
+      console.error('图片上传失败:', err)
+      errorRef.value = err.message || '图片上传失败，请重试'
+    }
+  }
+})
+
+const toolbarConfig = {
+  toolbarKeys: [
+    'bold',
+    'italic',
+    'underline',
+    'bulletedList',
+    'numberedList',
+    'insertLink',
+    'uploadImage'
+  ]
+}
+
+const replyToolbarConfig = {
+  toolbarKeys: [
+    'bold',
+    'italic',
+    'underline',
+    'bulletedList',
+    'numberedList',
+    'insertLink',
+    'uploadImage'
+  ]
+}
+
+const editEditorConfig = {
+  placeholder: '修改留言内容...',
+  MENU_CONF: {
+    uploadImage: createUploadFn(editError)
+  }
+}
+
+const getReplyEditorConfig = (messageId) => ({
+  placeholder: '写下你的回复...',
+  MENU_CONF: {
+    uploadImage: createUploadFn({ value: replyErrors[messageId] })
+  }
+})
+
+const getChildReplyEditorConfig = (messageId, replyId) => ({
+  placeholder: '写下你的回复...',
+  MENU_CONF: {
+    uploadImage: createUploadFn({ value: childReplyErrors[`${messageId}-${replyId}`] })
+  }
+})
 
 const fetchReplies = async (messageId) => {
   try {
@@ -374,22 +540,49 @@ const getEditButtonTitle = (message) => {
   return '编辑留言'
 }
 
-const stripHtml = (html) => {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  return tmp.textContent || tmp.innerText || ''
+const handleEditEditorCreated = (editor) => {
+  editEditorRef.value = editor
+  editPlainTextLength.value = stripHtml(editor.getHtml()).length
 }
 
-const textToHtml = (text) => {
-  const lines = text.split('\n').filter(line => line.trim().length > 0)
-  if (lines.length === 0) return '<p><br></p>'
-  return lines.map(line => `<p>${line}</p>`).join('')
+const handleEditEditorChange = (editor) => {
+  const html = editor.getHtml()
+  editHtmlContent.value = html
+  editPlainTextLength.value = stripHtml(html).length
+  editError.value = ''
+}
+
+const handleReplyEditorCreated = (messageId, editor) => {
+  replyEditors[messageId] = editor
+  replyPlainTextLength[messageId] = stripHtml(editor.getHtml()).length
+}
+
+const handleReplyEditorChange = (messageId, editor) => {
+  const html = editor.getHtml()
+  replyHtmlContent[messageId] = html
+  replyPlainTextLength[messageId] = stripHtml(html).length
+  replyErrors[messageId] = ''
+}
+
+const handleChildReplyEditorCreated = (messageId, replyId, editor) => {
+  const key = `${messageId}-${replyId}`
+  childReplyEditors[key] = editor
+  childReplyPlainTextLength[key] = stripHtml(editor.getHtml()).length
+}
+
+const handleChildReplyEditorChange = (messageId, replyId, editor) => {
+  const key = `${messageId}-${replyId}`
+  const html = editor.getHtml()
+  childReplyHtmlContent[key] = html
+  childReplyPlainTextLength[key] = stripHtml(html).length
+  childReplyErrors[key] = ''
 }
 
 const openEditDialog = (message) => {
   if (!isWithinEditTime(message)) return
   editingMessageId.value = message.id
-  editContent.value = stripHtml(message.content)
+  editHtmlContent.value = message.content || '<p><br></p>'
+  editPlainTextLength.value = stripHtml(message.content || '').length
   editError.value = ''
   editDialogVisible.value = true
 }
@@ -397,19 +590,24 @@ const openEditDialog = (message) => {
 const closeEditDialog = () => {
   editDialogVisible.value = false
   editingMessageId.value = null
-  editContent.value = ''
+  editHtmlContent.value = '<p><br></p>'
+  editPlainTextLength.value = 0
   editError.value = ''
+  if (editEditorRef.value) {
+    editEditorRef.value.destroy()
+    editEditorRef.value = null
+  }
 }
 
 const saveEdit = async () => {
-  if (!editingMessageId.value || !editContent.value.trim()) return
+  if (!editingMessageId.value || editPlainTextLength.value <= 0 || editPlainTextLength.value > MAX_MESSAGE_LENGTH) return
 
   editing.value = true
   editError.value = ''
 
   try {
-    const htmlContent = textToHtml(editContent.value.trim())
-    await updateMessageApi(editingMessageId.value, htmlContent)
+    const sanitizedHtml = sanitizeHtml(editHtmlContent.value)
+    await updateMessageApi(editingMessageId.value, sanitizedHtml)
     editing.value = false
     closeEditDialog()
     emit('message-updated')
@@ -430,6 +628,15 @@ const clearLocalLikeCache = () => {
   Object.keys(localLikeStatus).forEach(key => delete localLikeStatus[key])
   Object.keys(liking).forEach(key => delete liking[key])
   Object.keys(likeErrors).forEach(key => delete likeErrors[key])
+}
+
+const destroyAllReplyEditors = () => {
+  Object.values(replyEditors).forEach(editor => {
+    if (editor) editor.destroy()
+  })
+  Object.values(childReplyEditors).forEach(editor => {
+    if (editor) editor.destroy()
+  })
 }
 
 watch(
@@ -462,6 +669,10 @@ watch(
 
 onUnmounted(() => {
   stopCountdownTimer()
+  destroyAllReplyEditors()
+  if (editEditorRef.value) {
+    editEditorRef.value.destroy()
+  }
 })
 
 const getDisplayedReplies = (messageId) => {
@@ -512,15 +723,24 @@ const toggleReplyForm = (messageId) => {
   }
   showReplyForm[messageId] = !showReplyForm[messageId]
   if (showReplyForm[messageId]) {
-    replyContent[messageId] = ''
+    replyHtmlContent[messageId] = '<p><br></p>'
+    replyPlainTextLength[messageId] = 0
     replyErrors[messageId] = ''
+  } else if (replyEditors[messageId]) {
+    replyEditors[messageId].destroy()
+    delete replyEditors[messageId]
   }
 }
 
 const cancelReply = (messageId) => {
   showReplyForm[messageId] = false
-  replyContent[messageId] = ''
+  replyHtmlContent[messageId] = '<p><br></p>'
+  replyPlainTextLength[messageId] = 0
   replyErrors[messageId] = ''
+  if (replyEditors[messageId]) {
+    replyEditors[messageId].destroy()
+    delete replyEditors[messageId]
+  }
 }
 
 const scrollToLatestReply = async (messageId) => {
@@ -532,15 +752,24 @@ const scrollToLatestReply = async (messageId) => {
 }
 
 const submitReply = async (messageId) => {
-  if (!replyContent[messageId]?.trim()) return
+  if (!replyPlainTextLength[messageId] || replyPlainTextLength[messageId] <= 0 || replyPlainTextLength[messageId] > MAX_REPLY_LENGTH) return
 
   replying[messageId] = true
   replyErrors[messageId] = ''
 
   try {
-    await submitReplyApi(messageId, replyContent[messageId].trim())
-    replyContent[messageId] = ''
+    const sanitizedHtml = sanitizeHtml(replyHtmlContent[messageId])
+    await submitReplyApi(messageId, sanitizedHtml)
+    replyHtmlContent[messageId] = '<p><br></p>'
+    replyPlainTextLength[messageId] = 0
+    if (replyEditors[messageId]) {
+      replyEditors[messageId].clear()
+    }
     showReplyForm[messageId] = false
+    if (replyEditors[messageId]) {
+      replyEditors[messageId].destroy()
+      delete replyEditors[messageId]
+    }
     showAllReplies[messageId] = true
     await fetchReplies(messageId)
     scrollToLatestReply(messageId)
@@ -562,29 +791,47 @@ const toggleChildReplyForm = (messageId, replyId) => {
   const key = `${messageId}-${replyId}`
   showChildReplyForm[key] = !showChildReplyForm[key]
   if (showChildReplyForm[key]) {
-    childReplyContent[key] = ''
+    childReplyHtmlContent[key] = '<p><br></p>'
+    childReplyPlainTextLength[key] = 0
     childReplyErrors[key] = ''
+  } else if (childReplyEditors[key]) {
+    childReplyEditors[key].destroy()
+    delete childReplyEditors[key]
   }
 }
 
 const cancelChildReply = (messageId, replyId) => {
   const key = `${messageId}-${replyId}`
   showChildReplyForm[key] = false
-  childReplyContent[key] = ''
+  childReplyHtmlContent[key] = '<p><br></p>'
+  childReplyPlainTextLength[key] = 0
   childReplyErrors[key] = ''
+  if (childReplyEditors[key]) {
+    childReplyEditors[key].destroy()
+    delete childReplyEditors[key]
+  }
 }
 
 const submitChildReply = async (messageId, replyId) => {
   const key = `${messageId}-${replyId}`
-  if (!childReplyContent[key]?.trim()) return
+  if (!childReplyPlainTextLength[key] || childReplyPlainTextLength[key] <= 0 || childReplyPlainTextLength[key] > MAX_REPLY_LENGTH) return
 
   childReplying[key] = true
   childReplyErrors[key] = ''
 
   try {
-    await submitReplyApi(messageId, childReplyContent[key].trim(), replyId)
-    childReplyContent[key] = ''
+    const sanitizedHtml = sanitizeHtml(childReplyHtmlContent[key])
+    await submitReplyApi(messageId, sanitizedHtml, replyId)
+    childReplyHtmlContent[key] = '<p><br></p>'
+    childReplyPlainTextLength[key] = 0
+    if (childReplyEditors[key]) {
+      childReplyEditors[key].clear()
+    }
     showChildReplyForm[key] = false
+    if (childReplyEditors[key]) {
+      childReplyEditors[key].destroy()
+      delete childReplyEditors[key]
+    }
     showAllReplies[messageId] = true
     await fetchReplies(messageId)
     scrollToLatestReply(messageId)
@@ -900,25 +1147,42 @@ const formatTime = (dateStr) => {
   border-radius: 8px;
 }
 
-.reply-form textarea {
-  width: 100%;
-  padding: 10px 12px;
+.editor-wrapper {
   border: 2px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  resize: vertical;
-  font-family: inherit;
-  transition: border-color 0.3s;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  background: white;
 }
 
-.reply-form textarea:focus {
-  outline: none;
+.editor-wrapper:focus-within {
   border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.reply-form textarea:disabled {
-  background: #f0f0f0;
-  cursor: not-allowed;
+.editor-wrapper.editor-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.small-editor .editor-content {
+  min-height: 100px;
+  max-height: 250px;
+}
+
+.editor-toolbar {
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.editor-content {
+  min-height: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.editor-content :deep(.w-e-text-container) {
+  background: white;
 }
 
 .reply-form-actions {
@@ -933,9 +1197,17 @@ const formatTime = (dateStr) => {
   color: #999;
 }
 
+.char-count-warning {
+  color: #e67e22;
+}
+
+.char-count-error {
+  color: #e74c3c;
+}
+
 .char-count-wrapper {
   text-align: right;
-  margin-top: 5px;
+  margin-top: 8px;
 }
 
 .cancel-btn {
@@ -1233,21 +1505,6 @@ const formatTime = (dateStr) => {
   border-radius: 6px;
 }
 
-.child-reply-form textarea {
-  width: 100%;
-  padding: 8px 10px;
-  border: 2px solid #e0e0e0;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.child-reply-form textarea:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
 .child-replies {
   margin-top: 10px;
   margin-left: 36px;
@@ -1304,7 +1561,7 @@ const formatTime = (dateStr) => {
   background: white;
   border-radius: 12px;
   width: 90%;
-  max-width: 500px;
+  max-width: 600px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
   overflow: hidden;
 }
@@ -1331,29 +1588,6 @@ const formatTime = (dateStr) => {
 
 .edit-dialog-body {
   padding: 20px;
-}
-
-.edit-dialog-body textarea {
-  width: 100%;
-  padding: 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  resize: vertical;
-  font-family: inherit;
-  line-height: 1.6;
-  transition: border-color 0.3s;
-  box-sizing: border-box;
-}
-
-.edit-dialog-body textarea:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.edit-dialog-body textarea:disabled {
-  background: #f0f0f0;
-  cursor: not-allowed;
 }
 
 .edit-dialog-footer {
