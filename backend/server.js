@@ -7,7 +7,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const DOMPurify = require('dompurify');
-const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById } = require('./database');
+const { initDatabase, getMessages, getMessagesWithLikeStatus, insertMessage, createUser, getUserByUsername, getUserByEmail, getUserById, getAdminByUsername, getAdminById, getAllMessagesForAdmin, getMessageStats, reviewMessage, softDeleteMessage, batchReviewMessages, batchSoftDeleteMessages, getRepliesByMessageId, insertReply, getMessageById, getReplyById, toggleLike, updateMessage, insertNotification, getNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead, getNotificationById, getPublicStats } = require('./database');
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
@@ -163,6 +163,20 @@ function getClientIp(req) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const distPath = path.join(__dirname, '..', 'frontend', 'dist');
+
+const STATS_CACHE_TTL = 60 * 60 * 1000;
+let statsCache = null;
+let statsCacheTime = 0;
+
+function getCachedStats(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && statsCache && (now - statsCacheTime) < STATS_CACHE_TTL) {
+    return statsCache;
+  }
+  statsCache = getPublicStats();
+  statsCacheTime = now;
+  return statsCache;
+}
 
 app.use(cors());
 app.use(express.json());
@@ -354,6 +368,17 @@ app.get('/api/auth/user', authenticateToken, (req, res) => {
   }
 });
 
+app.get('/api/stats', (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === 'true';
+    const stats = getCachedStats(forceRefresh);
+    res.json({ stats, cachedAt: statsCacheTime });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取统计数据失败' });
+  }
+});
+
 app.get('/api/messages', (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const pageSize = parseInt(req.query.pageSize) || 5;
@@ -439,6 +464,9 @@ app.post('/api/messages', authenticateToken, (req, res) => {
     const message = insertMessage(req.user.id, req.user.username, sanitizedContent, avatar || null);
     const summary = plainText.length > 50 ? plainText.substring(0, 50) + '...' : plainText;
     insertNotification('new_message', `用户 ${req.user.username} 提交了新留言：${summary}`, message.id);
+    if (message.status === 'approved') {
+      getCachedStats(true);
+    }
     res.status(201).json({ message });
   } catch (err) {
     console.error(err);
@@ -735,6 +763,9 @@ app.put('/api/admin/messages/:id/review', authenticateAdmin, (req, res) => {
 
   try {
     const message = reviewMessage(messageId, status);
+    if (status === 'approved') {
+      getCachedStats(true);
+    }
     res.json({ message: '审核成功', data: message });
   } catch (err) {
     console.error(err);
@@ -742,25 +773,6 @@ app.put('/api/admin/messages/:id/review', authenticateAdmin, (req, res) => {
       return res.status(404).json({ error: err.message });
     }
     res.status(500).json({ error: err.message || '审核失败' });
-  }
-});
-
-app.delete('/api/admin/messages/:id', authenticateAdmin, (req, res) => {
-  const messageId = parseInt(req.params.id);
-
-  if (isNaN(messageId) || messageId <= 0) {
-    return res.status(400).json({ error: '无效的留言ID' });
-  }
-
-  try {
-    softDeleteMessage(messageId);
-    res.json({ message: '删除成功' });
-  } catch (err) {
-    console.error(err);
-    if (err.message === '留言不存在') {
-      return res.status(404).json({ error: err.message });
-    }
-    res.status(500).json({ error: err.message || '删除失败' });
   }
 });
 
@@ -777,10 +789,33 @@ app.post('/api/admin/messages/batch-review', authenticateAdmin, (req, res) => {
 
   try {
     const count = batchReviewMessages(ids, status);
+    if (status === 'approved') {
+      getCachedStats(true);
+    }
     res.json({ message: `已成功审核 ${count} 条留言`, count });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || '批量审核失败' });
+  }
+});
+
+app.delete('/api/admin/messages/:id', authenticateAdmin, (req, res) => {
+  const messageId = parseInt(req.params.id);
+
+  if (isNaN(messageId) || messageId <= 0) {
+    return res.status(400).json({ error: '无效的留言ID' });
+  }
+
+  try {
+    softDeleteMessage(messageId);
+    getCachedStats(true);
+    res.json({ message: '删除成功' });
+  } catch (err) {
+    console.error(err);
+    if (err.message === '留言不存在') {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message || '删除失败' });
   }
 });
 
@@ -793,6 +828,7 @@ app.post('/api/admin/messages/batch-delete', authenticateAdmin, (req, res) => {
 
   try {
     const count = batchSoftDeleteMessages(ids);
+    getCachedStats(true);
     res.json({ message: `已成功删除 ${count} 条留言`, count });
   } catch (err) {
     console.error(err);

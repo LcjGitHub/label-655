@@ -1,5 +1,6 @@
 <template>
   <div class="home">
+    <StatsPanel />
     <MessageForm @submitted="handleMessageSubmitted" />
     <MessageList
       :messages="messages"
@@ -19,6 +20,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import StatsPanel from '../components/StatsPanel.vue'
 import MessageForm from '../components/MessageForm.vue'
 import MessageList from '../components/MessageList.vue'
 import Pagination from '../components/Pagination.vue'

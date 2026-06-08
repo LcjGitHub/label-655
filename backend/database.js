@@ -589,6 +589,79 @@ function getNotificationById(notificationId) {
   return stmt.get(notificationId);
 }
 
+function getTotalMessageCount() {
+  const stmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved'");
+  return stmt.get().count;
+}
+
+function getTodayMessageCount() {
+  const today = new Date();
+  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const stmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved' AND created_at >= ?");
+  return stmt.get(startOfDay).count;
+}
+
+function getLast7DaysTrend() {
+  const result = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    const nextDate = new Date(date);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
+    const stmt = db.prepare("SELECT COUNT(*) as count FROM messages WHERE is_deleted = 0 AND status = 'approved' AND created_at >= ? AND created_at < ?");
+    const { count } = stmt.get(dateStr + 'T00:00:00.000Z', nextDateStr + 'T00:00:00.000Z');
+    result.push({
+      date: dateStr,
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      count
+    });
+  }
+  return result;
+}
+
+function getTopActiveUsers(limit = 5) {
+  const stmt = db.prepare(`
+    SELECT username, COUNT(*) as count
+    FROM messages
+    WHERE is_deleted = 0 AND status = 'approved'
+    GROUP BY username
+    ORDER BY count DESC
+    LIMIT ?
+  `);
+  return stmt.all(limit);
+}
+
+function getHourlyDistribution() {
+  const result = new Array(24).fill(0);
+  const stmt = db.prepare(`
+    SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
+    FROM messages
+    WHERE is_deleted = 0 AND status = 'approved'
+    GROUP BY strftime('%H', created_at)
+  `);
+  const rows = stmt.all();
+  rows.forEach(row => {
+    result[row.hour] = row.count;
+  });
+  return result;
+}
+
+function getPublicStats() {
+  return {
+    totalMessages: getTotalMessageCount(),
+    todayMessages: getTodayMessageCount(),
+    last7Days: getLast7DaysTrend(),
+    topUsers: getTopActiveUsers(5),
+    hourlyDistribution: getHourlyDistribution()
+  };
+}
+
 module.exports = {
   initDatabase,
   getMessages,
@@ -618,5 +691,11 @@ module.exports = {
   getUnreadNotificationCount,
   markNotificationAsRead,
   markAllNotificationsAsRead,
-  getNotificationById
+  getNotificationById,
+  getPublicStats,
+  getTotalMessageCount,
+  getTodayMessageCount,
+  getLast7DaysTrend,
+  getTopActiveUsers,
+  getHourlyDistribution
 };

@@ -125,6 +125,12 @@ export const updateMessage = (messageId, content) => {
   return api.put(`/messages/${messageId}`, { content })
 }
 
+export const getStats = (forceRefresh = false) => {
+  const params = {}
+  if (forceRefresh) params.refresh = 'true'
+  return api.get('/stats', { params })
+}
+
 export const adminLogin = (username, password) => {
   return api.post('/admin/login', { username, password })
 }
