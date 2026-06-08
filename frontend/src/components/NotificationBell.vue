@@ -143,7 +143,7 @@ const handleNotificationClick = async (notification) => {
   }
   showDropdown.value = false
   if (notification.message_id) {
-    router.push(`/admin/dashboard`)
+    router.push(`/admin/dashboard?messageId=${notification.message_id}`)
   } else {
     router.push('/admin/notifications')
   }
@@ -159,9 +159,28 @@ const handleMarkAllRead = async () => {
   }
 }
 
+const pollTick = async () => {
+  if (!isAdminLoggedIn.value) return
+  try {
+    if (showDropdown.value) {
+      const [countResp, listResp] = await Promise.all([
+        getUnreadNotificationCount(),
+        getRecentNotifications()
+      ])
+      unreadCount.value = countResp.data.unreadCount
+      notifications.value = listResp.data.notifications
+    } else {
+      const response = await getUnreadNotificationCount()
+      unreadCount.value = response.data.unreadCount
+    }
+  } catch (err) {
+    console.error('轮询获取通知失败:', err)
+  }
+}
+
 const startPolling = () => {
   stopPolling()
-  pollTimer = setInterval(fetchUnreadCount, POLL_INTERVAL)
+  pollTimer = setInterval(pollTick, POLL_INTERVAL)
 }
 
 const stopPolling = () => {

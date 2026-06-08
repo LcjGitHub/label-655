@@ -99,7 +99,8 @@
             <tr
               v-for="msg in messages"
               :key="msg.id"
-              :class="{ deleted: msg.is_deleted }"
+              :id="`message-row-${msg.id}`"
+              :class="{ deleted: msg.is_deleted, highlighted: highlightedMessageId === msg.id }"
             >
               <td class="col-check">
                 <input
@@ -186,8 +187,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import {
   getAdminStats,
   getAdminMessages,
@@ -201,6 +202,7 @@ import { stripHtml } from '../utils/sanitize.js'
 import NotificationBell from '../components/NotificationBell.vue'
 
 const router = useRouter()
+const route = useRoute()
 const adminStore = useAdminStore()
 const currentAdmin = computed(() => adminStore.currentAdmin.value)
 
@@ -209,6 +211,8 @@ const loading = ref(false)
 const error = ref('')
 const selectedIds = ref([])
 const currentStatus = ref(null)
+const highlightedMessageId = ref(null)
+let highlightTimer = null
 
 const pagination = reactive({
   currentPage: 1,
@@ -281,12 +285,60 @@ const fetchMessages = async (page = 1) => {
     const response = await getAdminMessages(page, pagination.pageSize, currentStatus.value)
     messages.value = response.data.messages
     Object.assign(pagination, response.data.pagination)
+    await nextTick()
+    locateTargetMessage(response.data)
   } catch (err) {
     error.value = '获取留言列表失败，请稍后重试'
     console.error(err)
   } finally {
     loading.value = false
   }
+}
+
+const locateTargetMessage = (data) => {
+  const rawId = route.query.messageId
+  if (!rawId) return
+  const targetId = parseInt(rawId)
+  if (isNaN(targetId) || targetId <= 0) return
+
+  const found = messages.value.find(m => m.id === targetId)
+  if (found) {
+    scrollAndHighlight(targetId)
+    return
+  }
+
+  const totalPages = data?.pagination?.totalPages || pagination.totalPages
+  const total = data?.pagination?.total || pagination.total
+  const pageSize = pagination.pageSize
+  if (!total || !pageSize) return
+
+  const targetIndex = messagesSortedIndex(targetId, data)
+  if (targetIndex === -1) return
+  const targetPage = Math.floor(targetIndex / pageSize) + 1
+  if (targetPage >= 1 && targetPage <= totalPages && targetPage !== pagination.currentPage) {
+    currentStatus.value = null
+    fetchMessages(targetPage)
+  }
+}
+
+const messagesSortedIndex = (targetId, data) => {
+  const allIds = data?.messages?.map(m => m.id) || messages.value.map(m => m.id)
+  return allIds.indexOf(targetId)
+}
+
+const scrollAndHighlight = (msgId) => {
+  if (highlightTimer) {
+    clearTimeout(highlightTimer)
+    highlightTimer = null
+  }
+  highlightedMessageId.value = msgId
+  const el = document.getElementById(`message-row-${msgId}`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  highlightTimer = setTimeout(() => {
+    highlightedMessageId.value = null
+  }, 4000)
 }
 
 const switchStatus = (status) => {
@@ -391,10 +443,29 @@ onMounted(() => {
   fetchStats()
 })
 
+watch(() => route.query.messageId, (newVal) => {
+  if (newVal) {
+    const targetId = parseInt(newVal)
+    if (!isNaN(targetId) && targetId > 0) {
+      const found = messages.value.find(m => m.id === targetId)
+      if (found) {
+        scrollAndHighlight(targetId)
+      } else {
+        currentStatus.value = null
+        fetchMessages(1)
+      }
+    }
+  }
+})
+
 onUnmounted(() => {
   document.body.classList.remove('admin-page-body')
   const appEl = document.getElementById('app')
   if (appEl) appEl.classList.remove('admin-page-app')
+  if (highlightTimer) {
+    clearTimeout(highlightTimer)
+    highlightTimer = null
+  }
 })
 </script>
 
@@ -715,6 +786,16 @@ onUnmounted(() => {
 
 .messages-table tr:hover:not(.deleted) {
   background: #f8f9fa;
+}
+
+.messages-table tr.highlighted {
+  background: #fff9e6 !important;
+  animation: highlightPulse 1s ease-in-out 2;
+}
+
+@keyframes highlightPulse {
+  0%, 100% { background: #fff9e6; }
+  50% { background: #ffe58f; }
 }
 
 .col-check {

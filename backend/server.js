@@ -74,7 +74,7 @@ const purifyConfig = {
   ALLOW_UNKNOWN_PROTOCOLS: false,
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   ADD_URI_SAFE_ATTR: [],
-  KEEP_CONTENT: true,
+  KEEP_CONTENT: false,
   RETURN_TRUSTED_TYPE: false,
   WHOLE_DOCUMENT: false,
   SANITIZE_DOM: true,

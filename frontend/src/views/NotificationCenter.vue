@@ -196,7 +196,7 @@ const handleNotificationClick = async (notification) => {
     }
   }
   if (notification.message_id) {
-    router.push('/admin/dashboard')
+    router.push(`/admin/dashboard?messageId=${notification.message_id}`)
   }
 }
 
