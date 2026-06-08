@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+/// <reference types="vitest" />
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -39,6 +40,12 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_ENV__: JSON.stringify(env.VITE_APP_ENV || 'development'),
       __APP_TITLE__: JSON.stringify(env.VITE_APP_TITLE || '留言板系统')
+    },
+    test: {
+      globals: true,
+      environment: 'happy-dom',
+      setupFiles: ['./src/tests/setup.js'],
+      include: ['src/tests/**/*.{test,spec}.{js,ts,jsx,tsx}']
     }
   }
 })
